@@ -47,6 +47,12 @@ class Road(Base):
     id = Column("ID_Road", Integer, primary_key=True)
     Name = Column(sa.String)
 
+    def get_length(self, session):
+        road_axe = Attribute.query_by_road(session, self.id).filter(Attribute.ID_Type_Attr == "0303").first()
+        if road_axe:
+            return (road_axe.L1, road_axe.L2)
+        return (0, 0)
+
 
 class Way(Base):
     __tablename__ = "Way"
