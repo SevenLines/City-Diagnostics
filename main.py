@@ -1,5 +1,3 @@
-from pprint import pprint
-
 import docx
 
 from db import session
@@ -296,7 +294,6 @@ class DiagnosticsReport(object):
 
         barrier_good = 0
         barrier_bad = 0
-        barrier_without = 0
         barrier_range = Range(0, self.end)
 
         for b in barriers:
@@ -314,7 +311,6 @@ class DiagnosticsReport(object):
         row.cells[12].text = get_km(barrier_without)
 
     def create(self):
-
         doc = docx.Document("Report_template.docx")
 
         table = doc.tables[0]
@@ -336,12 +332,6 @@ class DiagnosticsReport(object):
 
 
 if __name__ == '__main__':
-    # rng = Range(0, 1000)
-    # rng.add_subrange(100, 200, 3)
-    # pprint(rng.ranges())
-    # rng.add_subrange(50, 240, 4)
-    # rng.add_subrange(300, 540, 5)
-    # pprint(rng.ranges())
     report = DiagnosticsReport(5)
     doc = report.create()
 
