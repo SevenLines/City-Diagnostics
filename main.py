@@ -1,5 +1,6 @@
-import docx
 from pprint import pprint
+
+import docx
 
 from db import session
 from helpers import set_vertical_cell_direction
@@ -14,9 +15,47 @@ def check_in(range1, range2):
            or range1[0] <= range2[1] < range1[1]
 
 
+class Range(object):
+    range = []
+
+    def __init__(self, min, max) -> None:
+        self.min = min
+        self.max = max
+        self.range.append((min, max - min, None))
+
+    def add_subrange(self, start, end, value):
+        new_range = []
+        idx2 = None
+
+        start = max(start, self.min)
+        end = min(end, self.max)
+
+        for idx, r in enumerate(self.range):
+            if r[0] < start <= r[0] + r[1]:
+                for idx2, r2 in list(enumerate(self.range))[idx:]:
+                    if r2[0] < end <= r2[0] + r2[1]:
+                        new_range.append((r[0], start - r[0], r[2]))
+                        new_range.append((start, end - start, value))
+                        new_range.append((end, r2[0] + r2[1] - end, r2[2]))
+                        break
+            elif idx2 is None or idx > idx2:
+                new_range.append(r)
+        self.range = new_range
+
+    def ranges(self):
+        out = []
+        for r in self.range:
+            out.append((r[0], r[0] + r[1], r[2]))
+        return out
+
+    def __str__(self) -> str:
+        return str(self.ranges())
+
+
 class DiagnosticsReport(object):
     def __init__(self, road_id) -> None:
         self.defects = None
+        self.barrier_data = None
         self.delta = 100
         self.road = session.query(Road).get(road_id)
         self.start, self.end = self.road.get_length(session)
@@ -152,10 +191,10 @@ class DiagnosticsReport(object):
                             4: 2.5,
                         }.get(item[2]),
                         'description': {
-                            None: "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние меджду выбоинами более 20м)",
-                            20: "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние меджду выбоинами 10-20м)",
-                            10: "редкие выбоины на покрытиях, содержащих органическое вяжущее (расстояние меджду выбоинами 4-10м)",
-                            4: "частые выбоины на покрытиях, содержащих органическое вяжущее (расстояние меджду выбоинами 1-4м)",
+                            None: "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами более 20м)",
+                            20: "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 10-20м)",
+                            10: "редкие выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 4-10м)",
+                            4: "частые выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 1-4м)",
                         }.get(item[2])
                     })
 
@@ -166,6 +205,16 @@ class DiagnosticsReport(object):
             self.defects.append(row)
 
         return self.defects
+
+    def get_barrier_data(self):
+        if self.barrier_data:
+            return self.barrier_data
+
+        report = BarringReport()
+        data = report(self.road.id)
+        self.barrier_data = data
+
+        return self.barrier_data
 
     def fill_table_defects_by_odn(self, table):
         """Сводная ведомость наличия или отсутствия дефектов на участках автомобильных дорог"""
@@ -201,14 +250,13 @@ class DiagnosticsReport(object):
             row.cells[4].text = str(data_row['score']) if data_row['score'] else '-'
 
     def fill_table_barring_table(self, table):
-        report = BarringReport()
-        data = report(self.road.id)
+        data = self.get_barrier_data()
         for row_item in data:
             row = table.add_row()
             row.cells[0].text = self.road.Name
-            row.cells[1].text = row_item[0]
-            row.cells[2].text = row_item[2]
-            row.cells[3].text = row_item[3]
+            row.cells[1].text = row_item['Участок']
+            row.cells[2].text = row_item['Тип']
+            row.cells[3].text = row_item['condition']
 
     def fill_bad_wells_table(self, table):
         report = BadWellsReport()
@@ -221,6 +269,7 @@ class DiagnosticsReport(object):
 
     def fill_totals(self, table):
         defects = self.get_defects()
+        barriers = self.get_barrier_data()
 
         row = table.add_row()
         row.cells[0].text = self.road.Name
@@ -245,7 +294,27 @@ class DiagnosticsReport(object):
         row.cells[8].text = str(potholes_count)
         row.cells[9].text = str(other_alone_defects_count)
 
+        barrier_good = 0
+        barrier_bad = 0
+        barrier_without = 0
+        barrier_range = Range(0, self.end)
+
+        for b in barriers:
+            if b['is_barrier']:
+                barrier_range.add_subrange(b['start'], b['end'], 1)
+                if b['condition'] == 'хорошее':
+                    barrier_good += b['length']
+                else:
+                    barrier_bad += b['length']
+
+        barrier_without = sum([i[1] - i[0] for i in barrier_range.ranges() if i[2] is None])
+
+        row.cells[10].text = get_km(barrier_good)
+        row.cells[11].text = get_km(barrier_bad)
+        row.cells[12].text = get_km(barrier_without)
+
     def create(self):
+
         doc = docx.Document("Report_template.docx")
 
         table = doc.tables[0]
@@ -267,6 +336,12 @@ class DiagnosticsReport(object):
 
 
 if __name__ == '__main__':
+    # rng = Range(0, 1000)
+    # rng.add_subrange(100, 200, 3)
+    # pprint(rng.ranges())
+    # rng.add_subrange(50, 240, 4)
+    # rng.add_subrange(300, 540, 5)
+    # pprint(rng.ranges())
     report = DiagnosticsReport(5)
     doc = report.create()
 

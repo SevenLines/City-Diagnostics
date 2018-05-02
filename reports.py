@@ -219,7 +219,7 @@ class DefectsReport(object):
 class BarringReport(object):
     def __call__(self, ID_Road, *args, **kwargs):
         """
-        010109 -- бортовой камень, ID_Param: 3935 == 1ГП то состояние плохое
+        010109 -- бортовой камень, ID_Param: 3935 == 1ГП то condition плохое
         020301	Криволинейный брус (Металическое)
         020302	Сигнальный столбик
         020303	Типа Нью-Джерси
@@ -261,6 +261,7 @@ class BarringReport(object):
             ListAttrib.name_attribute,
             Attribute.L1,
             Attribute.L2,
+            Attribute.ID_Type_Attr,
             Attribute.Image_Points,
             Attribute.Image_Counts,
             Params.value
@@ -275,11 +276,15 @@ class BarringReport(object):
             points = Attribute.get_points(r.Image_Points, r.Image_Counts)
             position = "Слева" if points[0].a < 0 else 'Справа'
 
-            out.append((
-                range_,
-                position,
-                type_,
-                condition
-            ))
+            out.append({
+                "Участок": range_,
+                "Позиция": position,
+                "Тип": type_,
+                "condition": condition,
+                "length": r.L2 - r.L1,
+                'start': r.L1,
+                'end': r.L2,
+                'is_barrier': r.ID_Type_Attr != '010109'
+            })
 
         return out
