@@ -270,7 +270,7 @@ class BarringReport(object):
         for r in attributes:
             range_ = "{} - {}".format(get_km(r.L1), get_km(r.L2))
             type_ = r.name_attribute
-            condition = "неуд." if r.value else "удовл."
+            condition = "плохое" if r.value else "хорошее"
 
             points = Attribute.get_points(r.Image_Points, r.Image_Counts)
             position = "Слева" if points[0].a < 0 else 'Справа'
