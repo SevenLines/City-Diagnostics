@@ -79,13 +79,14 @@ class DefectsReport(object):
 
     @classmethod
     def join_ranges(cls, data, list_values=None):
-
+        if not data:
+            return []
         list_values_ordered = sorted(list_values)
 
         preprocessed = []
         for idx, c in enumerate(data[:-1]):
             new_value = c[2]
-            if new_value:
+            if new_value is not None:
                 for v in list_values_ordered:
                     if new_value <= v:
                         new_value = v
@@ -606,7 +607,7 @@ class DiagnosticsReport(QObject):
         row.cells[12].text = get_km(barrier_without)
 
     def create(self):
-        doc = docx.Document("Report_template.docx")
+        doc = docx.Document("templates/diagnostics.docx")
 
         count = 6
 
