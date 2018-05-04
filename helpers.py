@@ -79,8 +79,8 @@ class Range(object):
 
 class RangeAvg(Range):
     def join_function(self, old_value, new_value):
-        # delimiter = 1
-        # if old_value is not None:
-        #     delimiter += 1
+        delimiter = 1
+        if old_value is not None:
+            delimiter += 1
 
         return ((old_value or 0) + (new_value or 0)) / 2

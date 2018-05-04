@@ -79,7 +79,7 @@ class ReportWorker(QtCore.QObject):
 class MainWindow(Ui_MainWindow, QMainWindow):
     thread = None
     roads_model = None
-    path = "."
+    path = "./out/"
 
     def __init__(self, *args, **kwargs) -> None:
         super(MainWindow, self).__init__(*args, **kwargs)
@@ -103,7 +103,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.log_model.clear()
         path = QFileDialog.getSaveFileName(directory="{}/{}.docx".format(self.path, road.Name))
 
-        if path[0] and not self.thread:
+        if path[0]:
             self.lblLoading.setVisible(True)
             self.btnGenerate.setDisabled(True)
             self.path = path[0]
@@ -129,6 +129,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.thread.started.disconnect()
         self.worker.progressed.disconnect()
         self.worker.finished.disconnect()
+        self.thread.exit()
         self.thread = None
         self.worker = None
 

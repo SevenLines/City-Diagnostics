@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from PyQt5 import QtCore
 
 from itertools import groupby
@@ -345,7 +347,7 @@ class DiagnosticsReport(QObject):
 
     def get_range(self):
         delta = self.delta
-        ranges = range(0, self.end + delta, delta)
+        ranges = range(0, self.end + 1, delta)
         return ranges, delta
 
     def get_defects(self):
@@ -360,6 +362,7 @@ class DiagnosticsReport(QObject):
         for offset in ranges:
             row = {
                 "address": get_km(offset),
+                "length": self.end - offset if offset + delta > self.end else delta,
                 "defects": [],
                 "score": 0,
             }
@@ -572,7 +575,7 @@ class DiagnosticsReport(QObject):
         potholes_count = 0
         other_alone_defects_count = 0
         for data_row in defects:
-            score_cols[int(data_row['score']) - 1] += self.delta
+            score_cols[int(data_row['score']) - 1] += data_row['length']
             for defect in data_row['defects']:
                 if defect['alone']:
                     if defect['type'] == 'Выбоины':
@@ -604,10 +607,32 @@ class DiagnosticsReport(QObject):
         row.cells[11].text = get_km(barrier_bad)
         row.cells[12].text = get_km(barrier_without)
 
+    def fill_smooth_data(self, table):
+        table.rows[0].cells[0].text = self.road.Name
+        table.rows[1].cells[0].text = "{:%d.%m.%Y}".format(datetime.now())
+
+        attributes = Attribute.query_by_road(session, self.road.id).filter(
+            Attribute.ID_Type_Attr == 2310,
+            Attribute.id.in_(
+                Attribute.query_by_road(session, self.road.id)
+                    .join(Params)
+                    .filter(Params.id == '231')
+                    .filter(Params.value == 'Прямое')
+                    .with_entities(Attribute.id)
+            )
+        ).join(Params).filter(Params.id == '233')\
+            .with_entities(Attribute.L1, Attribute.L2, Params.value)
+
+        for a in attributes:
+            row = table.add_row()
+            row.cells[0].text = a.value
+            row.cells[2].text = get_km(a.L2 - a.L1)
+            row.cells[3].text = get_km(a.L1)
+
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")
 
-        count = 6
+        count = 7
 
         self.progressed.emit(0, count, "Заполняю итоговую таблицу")
         table = doc.tables[0]
@@ -633,6 +658,10 @@ class DiagnosticsReport(QObject):
         table = doc.tables[5]
         self.fill_table_trail_defects(table)
 
-        self.progressed.emit(6, count, "Готово")
+        self.progressed.emit(6, count, "Заполняю таблицу по ровности")
+        table = doc.tables[6]
+        self.fill_smooth_data(table)
+
+        self.progressed.emit(count, count, "Готово")
 
         return doc
