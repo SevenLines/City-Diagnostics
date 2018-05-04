@@ -7,7 +7,7 @@ from PyQt5.QtCore import QObject
 from sqlalchemy import or_, and_
 
 from db import session
-from helpers import Range, check_in, set_vertical_cell_direction
+from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg
 from models import Attribute, Params, ListAttrib, Road
 
 
@@ -55,170 +55,6 @@ class BadWellsReport(object):
             out.append((type, position, defects))
 
         return out
-
-
-class DefectsReport(object):
-
-    @classmethod
-    def calculate_delta_to_next(cls, data, max_value=None):
-        preprocessed = []
-        for idx, c in enumerate(data[:-1]):
-            n = data[idx + 1]
-            dl = abs(n[0] - c[1])
-
-            if max_value and dl > max_value:
-                dl = None
-
-            preprocessed.append(
-                (c[0], c[1], dl)
-            )
-        preprocessed.append(
-            (data[-1][0], data[-1][1], None)
-        )
-        return preprocessed
-
-    @classmethod
-    def join_ranges(cls, data, list_values=None):
-        if not data:
-            return []
-        list_values_ordered = sorted(list_values)
-
-        preprocessed = []
-        for idx, c in enumerate(data[:-1]):
-            new_value = c[2]
-            if new_value is not None:
-                for v in list_values_ordered:
-                    if new_value <= v:
-                        new_value = v
-                        break
-
-            preprocessed.append(
-                (c[0], c[1], new_value)
-            )
-
-        preprocessed.append((
-            data[-1][0],
-            data[-1][1],
-            None
-        ))
-
-        ranges = []
-        previous_value = preprocessed[0][2]
-        current_range = preprocessed[0]
-
-        for idx, (l1, l2, value) in enumerate(preprocessed):
-            if previous_value is None:
-                if value is None:
-                    ranges.append((l1, l2, None))
-                else:
-                    current_range = (l1, l2, value)
-            else:
-                if value == previous_value:
-                    if idx == len(preprocessed) - 1:
-                        current_range = (current_range[0], l2, value)
-                    else:
-                        current_range = (current_range[0], l1, value)
-                else:
-                    ranges.append((current_range[0], l2, previous_value))
-                    current_range = (l2, l2, value)
-
-            previous_value = value
-
-        return ranges
-
-    def get_koleynost(self, ID_Road):
-        qs = session.query(Attribute).filter(
-            Attribute.id.in_(
-                Attribute.query_by_road(session, ID_Road)
-                    .filter(Attribute.ID_Type_Attr == "01020106")
-                    .join(Params)
-                    .filter(and_(Params.id == 245, Params.value == 'Обратное'))
-                    .with_entities(Attribute.id)
-            )
-        ).join(Params).filter(Params.id == 212) \
-            .with_entities(Attribute.L1, Attribute.L2, Params.value) \
-            .order_by(Attribute.L1, Attribute.L2)
-
-        out = []
-        for row in qs:
-            out.append((row.L1, row.L2, int(float(row.value) * 10)))
-
-        out = self.join_ranges(out, [10, 20, 30, 40, 50, 70])
-        return out
-
-    def get_defects(self, ID_Road):
-        DEFECTS = {
-            "01020103": {
-                "title": "Выбоины",
-            },
-            "01020104": {
-                "title": "Сетка трещин",
-            },
-            "01020102": {
-                "title": "Карты(Заплаты)",
-            },
-            "01020101": {
-                "title": "Трещины",
-            }
-        }
-        attributes = Attribute.query_by_road(session, ID_Road) \
-            .filter(Attribute.ID_Type_Attr.in_(DEFECTS.keys())) \
-            .join(ListAttrib) \
-            .with_entities(
-            Attribute.L1,
-            Attribute.L2,
-            Attribute.ID_Type_Attr,
-            ListAttrib.name_attribute,
-            Attribute.Image_Counts,
-            Attribute.Image_Points
-        ).order_by(Attribute.L1, Attribute.L2)
-
-        defects = {}
-        LMax = 0
-        for r in attributes:
-            name = r.name_attribute
-            if r.ID_Type_Attr == '01020101':
-                points = Attribute.get_points(r.Image_Points, r.Image_Counts)
-                da = max([p.a for p in points]) - min([p.a for p in points])
-                dy = r.L2 - r.L1
-                if da > dy:
-                    name = "Попереченые трещины"
-                else:
-                    name = "Продольные трещины"
-
-            item = defects.setdefault(name, [])
-            item.append((r.L1, r.L2))
-
-            LMax = max(LMax, r.L1, r.L2)
-
-        transverse_cracks = defects.get("Попереченые трещины", [])
-        transverse_cracks_ranges = []
-        if transverse_cracks:
-            transverse_cracks_ranges = self.join_ranges(
-                self.calculate_delta_to_next(transverse_cracks, 40),
-                [2, 3, 4, 6, 8, 10, 20, 40]
-            )
-
-        potholes = defects.get("Выбоины", [])
-        potholes_ranges = []
-        if potholes:
-            potholes_ranges = self.join_ranges(
-                self.calculate_delta_to_next(potholes, 20),
-                [4, 10, 20]
-            )
-
-        koleynost = self.get_koleynost(ID_Road)
-
-        return {
-            'Попереченые трещины': transverse_cracks_ranges,
-            'Выбоины': potholes_ranges,
-            'Колейность': koleynost,
-            'Сетка трещин': defects.get("Сетка трещин"),
-            'Карты(Заплаты)': defects.get("Карты(Заплаты)", []),
-        }
-
-    def __call__(self, ID_Road, *args, **kwargs):
-        return self.get_defects(ID_Road)
 
 
 class BarringReport(object):
@@ -337,6 +173,8 @@ class TrailReport(object):
 class DiagnosticsReport(QObject):
     progressed = QtCore.pyqtSignal(int, int, str)
 
+
+
     def __init__(self, road_id, *args, **kwargs) -> None:
         super(DiagnosticsReport, self).__init__(*args, **kwargs)
         self.defects = None
@@ -344,6 +182,166 @@ class DiagnosticsReport(QObject):
         self.delta = 100
         self.road = session.query(Road).get(road_id)
         self.start, self.end = self.road.get_length(session)
+
+    @classmethod
+    def calculate_delta_to_next(cls, data, max_value=None):
+        preprocessed = []
+        for idx, c in enumerate(data[:-1]):
+            n = data[idx + 1]
+            dl = abs(n[0] - c[1])
+
+            if max_value and dl > max_value:
+                dl = None
+
+            preprocessed.append(
+                (c[0], c[1], dl)
+            )
+        preprocessed.append(
+            (data[-1][0], data[-1][1], None)
+        )
+        return preprocessed
+
+    @classmethod
+    def join_ranges(cls, data, list_values=None):
+        if not data:
+            return []
+        list_values_ordered = sorted(list_values)
+
+        preprocessed = []
+        for idx, c in enumerate(data[:-1]):
+            new_value = c[2]
+            if new_value is not None:
+                for v in list_values_ordered:
+                    if new_value <= v:
+                        new_value = v
+                        break
+
+            preprocessed.append(
+                (c[0], c[1], new_value)
+            )
+
+        preprocessed.append((
+            data[-1][0],
+            data[-1][1],
+            None
+        ))
+
+        ranges = []
+        previous_value = preprocessed[0][2]
+        current_range = preprocessed[0]
+
+        for idx, (l1, l2, value) in enumerate(preprocessed):
+            if previous_value is None:
+                if value is None:
+                    ranges.append((l1, l2, None))
+                else:
+                    current_range = (l1, l2, value)
+            else:
+                if value == previous_value:
+                    if idx == len(preprocessed) - 1:
+                        current_range = (current_range[0], l2, value)
+                    else:
+                        current_range = (current_range[0], l1, value)
+                else:
+                    ranges.append((current_range[0], l2, previous_value))
+                    current_range = (l2, l2, value)
+
+            previous_value = value
+
+        return ranges
+
+    def get_koleynost(self):
+        qs = session.query(Attribute).filter(
+            Attribute.id.in_(
+                Attribute.query_by_road(session, self.road.id)
+                    .filter(Attribute.ID_Type_Attr == "01020106")
+                    .join(Params)
+                    .with_entities(Attribute.id)
+            )
+        ).join(Params).filter(Params.id == 212) \
+            .with_entities(Attribute.L1, Attribute.L2, Params.value) \
+            .order_by(Attribute.L1, Attribute.L2)
+
+        rng = RangeAvg(self.start, self.end)
+
+        out = []
+        for row in qs:
+            rng.add_subrange(row.L1, row.L2 if row.L2 > row.L1 else row.L1 + 1, int(float(row.value) * 10))
+            out.append((row.L1, row.L2, int(float(row.value) * 10)))
+
+        out = self.join_ranges([r for r in rng.ranges if r[2] is not None], [10, 20, 30, 40, 50, 70])
+        return out
+
+    def get_defects_report(self):
+        DEFECTS = {
+            "01020103": {
+                "title": "Выбоины",
+            },
+            "01020104": {
+                "title": "Сетка трещин",
+            },
+            "01020102": {
+                "title": "Карты(Заплаты)",
+            },
+            "01020101": {
+                "title": "Трещины",
+            }
+        }
+        attributes = Attribute.query_by_road(session, self.road.id) \
+            .filter(Attribute.ID_Type_Attr.in_(DEFECTS.keys())) \
+            .join(ListAttrib) \
+            .with_entities(
+            Attribute.L1,
+            Attribute.L2,
+            Attribute.ID_Type_Attr,
+            ListAttrib.name_attribute,
+            Attribute.Image_Counts,
+            Attribute.Image_Points
+        ).order_by(Attribute.L1, Attribute.L2)
+
+        defects = {}
+        LMax = 0
+        for r in attributes:
+            name = r.name_attribute
+            if r.ID_Type_Attr == '01020101':
+                points = Attribute.get_points(r.Image_Points, r.Image_Counts)
+                da = max([p.a for p in points]) - min([p.a for p in points])
+                dy = r.L2 - r.L1
+                if da > dy:
+                    name = "Попереченые трещины"
+                else:
+                    name = "Продольные трещины"
+
+            item = defects.setdefault(name, [])
+            item.append((r.L1, r.L2))
+
+            LMax = max(LMax, r.L1, r.L2)
+
+        transverse_cracks = defects.get("Попереченые трещины", [])
+        transverse_cracks_ranges = []
+        if transverse_cracks:
+            transverse_cracks_ranges = self.join_ranges(
+                self.calculate_delta_to_next(transverse_cracks, 40),
+                [2, 3, 4, 6, 8, 10, 20, 40]
+            )
+
+        potholes = defects.get("Выбоины", [])
+        potholes_ranges = []
+        if potholes:
+            potholes_ranges = self.join_ranges(
+                self.calculate_delta_to_next(potholes, 20),
+                [4, 10, 20]
+            )
+
+        koleynost = self.get_koleynost()
+
+        return {
+            'Попереченые трещины': transverse_cracks_ranges,
+            'Выбоины': potholes_ranges,
+            'Колейность': koleynost,
+            'Сетка трещин': defects.get("Сетка трещин"),
+            'Карты(Заплаты)': defects.get("Карты(Заплаты)", []),
+        }
 
     def get_range(self):
         delta = self.delta
@@ -354,7 +352,7 @@ class DiagnosticsReport(QObject):
         if self.defects is not None:
             return self.defects
 
-        defects = DefectsReport()(self.road.id)
+        defects = self.get_defects_report()
 
         ranges, delta = self.get_range()
         self.defects = []
@@ -600,7 +598,7 @@ class DiagnosticsReport(QObject):
                 else:
                     barrier_bad += b['length']
 
-        barrier_without = sum([i[1] - i[0] for i in barrier_range.ranges() if i[2] is None])
+        barrier_without = sum([i[1] - i[0] for i in barrier_range.ranges if i[2] is None])
 
         row.cells[10].text = get_km(barrier_good)
         row.cells[11].text = get_km(barrier_bad)

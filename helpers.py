@@ -36,12 +36,13 @@ class Range(object):
         self._ranges = [(min, max, None)]
 
     def add_subrange(self, start, end, value):
-        assert end - start > 0, "end must be greater then start"
         new_range = []
         idx2 = None
 
         start = max(start, self.min)
-        end = min(end, self.max)
+        end = max(start, min(end, self.max))
+        if start > end:
+            return
 
         for idx, r in enumerate(self._ranges):
             if r[0] <= start < r[1]:
@@ -78,4 +79,8 @@ class Range(object):
 
 class RangeAvg(Range):
     def join_function(self, old_value, new_value):
-        return (old_value + new_value) / 2
+        # delimiter = 1
+        # if old_value is not None:
+        #     delimiter += 1
+
+        return ((old_value or 0) + (new_value or 0)) / 2
