@@ -21,37 +21,61 @@ def check_in(range1, range2):
 
 
 class Range(object):
-    range = []
+    _ranges = None
+
+    def join_function(self, old_value, new_value):
+        return new_value
+
+    @property
+    def ranges(self):
+        return self._ranges
 
     def __init__(self, min, max) -> None:
         self.min = min
         self.max = max
-        self.range.append((min, max - min, None))
+        self._ranges = [(min, max, None)]
 
     def add_subrange(self, start, end, value):
+        assert end - start > 0, "end must be greater then start"
         new_range = []
         idx2 = None
 
         start = max(start, self.min)
         end = min(end, self.max)
 
-        for idx, r in enumerate(self.range):
-            if r[0] < start <= r[0] + r[1]:
-                for idx2, r2 in list(enumerate(self.range))[idx:]:
-                    if r2[0] < end <= r2[0] + r2[1]:
-                        new_range.append((r[0], start - r[0], r[2]))
-                        new_range.append((start, end - start, value))
-                        new_range.append((end, r2[0] + r2[1] - end, r2[2]))
+        for idx, r in enumerate(self._ranges):
+            if r[0] <= start < r[1]:
+                r_to_add = (r[0], start, r[2])
+                for idx2, r2 in list(enumerate(self._ranges))[idx:]:
+                    if r2[0] < end <= r2[1]:
+                        new_value = self.join_function(r2[2], value)
+                        if r_to_add[2] != new_value:
+                            if r_to_add[1] - r_to_add[0] != 0:
+                                new_range.append(r_to_add)
+                            r_to_add = (r_to_add[1], end, new_value)
+                        else:
+                            r_to_add = (r_to_add[0], end, r_to_add[2])
+                        new_range.append(r_to_add)
+                        if end != r2[1]:
+                            new_range.append((end, r2[1], r2[2]))
                         break
+                    else:
+                        new_value = self.join_function(r2[2], value)
+                        if r_to_add[2] != new_value:
+                            if r_to_add[1] - r_to_add[0] != 0:
+                                new_range.append(r_to_add)
+                            r_to_add = (r_to_add[1], r2[1], new_value)
+                        else:
+                            r_to_add = (r_to_add[0], r2[1], r_to_add[2])
+
             elif idx2 is None or idx > idx2:
                 new_range.append(r)
-        self.range = new_range
-
-    def ranges(self):
-        out = []
-        for r in self.range:
-            out.append((r[0], r[0] + r[1], r[2]))
-        return out
+        self._ranges = new_range
 
     def __str__(self) -> str:
-        return str(self.ranges())
+        return str(self._ranges)
+
+
+class RangeAvg(Range):
+    def join_function(self, old_value, new_value):
+        return (old_value + new_value) / 2
