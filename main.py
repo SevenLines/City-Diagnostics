@@ -130,8 +130,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.worker.progressed.disconnect()
         self.worker.finished.disconnect()
         self.thread.exit()
-        self.thread = None
-        self.worker = None
+        # self.thread = None
+        # self.worker = None
 
     @QtCore.pyqtSlot(int, int, str)
     def onProgress(self, value, max, message):

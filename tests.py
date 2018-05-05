@@ -1,6 +1,7 @@
 from unittest import TestCase
 
 from helpers import Range
+from reports import DiagnosticsReport
 
 
 class RangeTestCase(TestCase):
@@ -167,3 +168,9 @@ class RangeTestCase(TestCase):
                 (400, 1000, None),
             ]
         )
+
+
+class TestReport(TestCase):
+    def test_it_works(self):
+        report = DiagnosticsReport(5)
+        doc = report.create()

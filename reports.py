@@ -6,7 +6,7 @@ from itertools import groupby
 
 import docx
 from PyQt5.QtCore import QObject
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func, text, literal_column, case
 
 from db import session
 from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg
@@ -408,7 +408,7 @@ class DiagnosticsReport(QObject):
                         )
                     })
 
-            defect_cell_offset = 15
+            defect_cell_offset = 16
             for item in defects['Сетка трещин']:
                 if check_in(item, (offset, offset + 100)):
                     row['defects'].append({
@@ -422,7 +422,7 @@ class DiagnosticsReport(QObject):
                                        "при относительной площади занимаемой сеткой 60-30%"
                     })
 
-            defect_cell_offset = 18
+            defect_cell_offset = 19
             for item in defects['Колейность']:
                 if check_in(item, (offset, offset + 100)):
                     if item[2] == None:
@@ -456,7 +456,7 @@ class DiagnosticsReport(QObject):
                         )
                     })
 
-            defect_cell_offset = 31
+            defect_cell_offset = 32
             for item in defects['Выбоины']:
                 if check_in(item, (offset, offset + 100)):
                     if item[2] == None:
@@ -523,8 +523,8 @@ class DiagnosticsReport(QObject):
             for row_item in data_row['defects']:
                 row.cells[row_item['cell']].text = row_item['short']
 
-        cell = table.rows[4].cells[0]
-        cell.merge(table.rows[3 + len(defects)].cells[0])
+        cell = table.rows[3].cells[0]
+        cell.merge(table.rows[2 + len(defects)].cells[0])
         cell.text = self.road.Name
         set_vertical_cell_direction(cell, 'tbRl')
 
@@ -568,7 +568,7 @@ class DiagnosticsReport(QObject):
 
         row = table.add_row()
         row.cells[0].text = self.road.Name
-        row.cells[1].text = "???"  # категория
+        row.cells[1].text = "???категория"  # категория
         row.cells[2].text = get_km(self.end - max(0, self.start))
 
         score_cols = [0, 0, 0, 0, 0]
@@ -609,25 +609,51 @@ class DiagnosticsReport(QObject):
 
     def fill_smooth_data(self, table):
         table.rows[0].cells[0].text = self.road.Name
-        table.rows[1].cells[0].text = "{:%d.%m.%Y}".format(datetime.now())
+        table.rows[1].cells[0].text = "«Дата»: {:%d.%m.%Y}".format(datetime.now())
 
-        attributes = Attribute.query_by_road(session, self.road.id).filter(
-            Attribute.ID_Type_Attr == 2310,
-            Attribute.id.in_(
-                Attribute.query_by_road(session, self.road.id)
-                    .join(Params)
-                    .filter(Params.id == '231')
-                    .filter(Params.value == 'Прямое')
-                    .with_entities(Attribute.id)
-            )
-        ).join(Params).filter(Params.id == '233')\
-            .with_entities(Attribute.L1, Attribute.L2, Params.value)
+        column = literal_column("L1 / 100 * 100")
+
+        def get_query(direction):
+            return session.query(Attribute).filter(
+                Attribute.ID_Type_Attr == 2310,
+                Attribute.id.in_(
+                    Attribute.query_by_road(session, self.road.id)
+                        .join(Params)
+                        .filter(Params.id == '231')
+                        .filter(Params.value == direction)
+                        .with_entities(Attribute.id)
+                )
+            ).join(Params).filter(Params.id == '233')
+
+        forward = get_query("Прямое").with_entities(
+            column.label('pos'),
+            literal_column("Avg(Cast(ValueParam as float))").label('forward'),
+            literal_column('0').label('backward'),
+        ).group_by(column)
+
+        backward = get_query("Обратное").with_entities(
+            column,
+            literal_column("0"),
+            literal_column("Avg(Cast(ValueParam as float))"),
+        ).group_by(column)
+
+        qs = forward.union(backward).subquery('t')
+
+        attributes = session.query(
+            qs.c.pos.label('pos'),
+            case([(func.max(qs.c.forward) > 0, func.max(qs.c.forward))], else_=func.max(qs.c.backward)).label('forward'),
+            case([(func.max(qs.c.backward) > 0, func.max(qs.c.backward)),], else_=func.max(qs.c.forward)).label('backward'),
+        ).group_by(qs.c.pos)
 
         for a in attributes:
-            row = table.add_row()
-            row.cells[0].text = a.value
-            row.cells[2].text = get_km(a.L2 - a.L1)
-            row.cells[3].text = get_km(a.L1)
+            if a.pos < self.end:
+                row = table.add_row()
+                row.cells[0].text = str(round(a.backward, 2))
+                row.cells[1].text = str(round(a.forward, 2))
+                row.cells[2].text = "{}".format(self.end - a.pos if a.pos + self.delta > self.end else self.delta)
+                row.cells[3].text = get_km(a.pos)
+                row.cells[4].text = '???категория'
+                row.cells[5].text = 'усовершенствованная'
 
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")
