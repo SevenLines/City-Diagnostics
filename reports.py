@@ -8,7 +8,7 @@ import docx
 from PyQt5.QtCore import QObject
 from sqlalchemy import or_, and_, func, text, literal_column, case
 
-from db import session
+from db import session, Session
 from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg
 from models import Attribute, Params, ListAttrib, Road
 
@@ -18,6 +18,9 @@ def get_km(value):
 
 
 class BadWellsReport(object):
+    def __init__(self, session) -> None:
+        self.session = session
+
     def __call__(self, ID_Road, *args, **kwargs):
         """
         ДЕФЕКТ: Параметр в Свойствах "Принадлежность" (ID_Param: 3939 or 3937)
@@ -37,7 +40,7 @@ class BadWellsReport(object):
             }
         }
 
-        query = Attribute.query_by_road(session, ID_Road) \
+        query = Attribute.query_by_road(self.session, ID_Road) \
             .join(Params).with_entities() \
             .filter(Attribute.ID_Type_Attr.in_(["0602", "0602"])) \
             .filter(Params.id.in_(["3939", "3937"])) \
@@ -60,6 +63,9 @@ class BadWellsReport(object):
 
 
 class BarringReport(object):
+    def __init__(self, session) -> None:
+        self.session = session
+
     def __call__(self, ID_Road, *args, **kwargs):
         """
         010109 -- бортовой камень, ID_Param: 3935 == 1ГП то condition плохое
@@ -74,7 +80,7 @@ class BarringReport(object):
         :param ID_Road:
         :return:
         """
-        attributes = Attribute.query_by_road(session, ID_Road).filter(
+        attributes = Attribute.query_by_road(self.session, ID_Road).filter(
             Attribute.ID_Type_Attr.in_([
                 "010109",  # бортовой камен
                 "020301",
@@ -134,6 +140,9 @@ class BarringReport(object):
 
 
 class TrailReport(object):
+    def __init__(self, session) -> None:
+        self.session = session
+
     def _get_info(self, key, items):
         info = {i.param_id: i for i in items}
         info['title'] = key
@@ -142,7 +151,7 @@ class TrailReport(object):
         return info
 
     def __call__(self, ID_Road, *args, **kwargs):
-        attributes = Attribute.query_by_road(session, ID_Road).filter(
+        attributes = Attribute.query_by_road(self.session, ID_Road).filter(
             Attribute.ID_Type_Attr == '0407'
         ).join(Params).order_by(Attribute.L1, Attribute.L2, Attribute.id).with_entities(
             Attribute.L1,
@@ -175,15 +184,14 @@ class TrailReport(object):
 class DiagnosticsReport(QObject):
     progressed = QtCore.pyqtSignal(int, int, str)
 
-
-
     def __init__(self, road_id, *args, **kwargs) -> None:
         super(DiagnosticsReport, self).__init__(*args, **kwargs)
+        self.session = Session()
         self.defects = None
         self.barrier_data = None
         self.delta = 100
-        self.road = session.query(Road).get(road_id)
-        self.start, self.end = self.road.get_length(session)
+        self.road = self.session.query(Road).get(road_id)
+        self.start, self.end = self.road.get_length(self.session)
 
     @classmethod
     def calculate_delta_to_next(cls, data, max_value=None):
@@ -253,9 +261,9 @@ class DiagnosticsReport(QObject):
         return ranges
 
     def get_koleynost(self):
-        qs = session.query(Attribute).filter(
+        qs = self.session.query(Attribute).filter(
             Attribute.id.in_(
-                Attribute.query_by_road(session, self.road.id)
+                Attribute.query_by_road(self.session, self.road.id)
                     .filter(Attribute.ID_Type_Attr == "01020106")
                     .join(Params)
                     .with_entities(Attribute.id)
@@ -289,7 +297,7 @@ class DiagnosticsReport(QObject):
                 "title": "Трещины",
             }
         }
-        attributes = Attribute.query_by_road(session, self.road.id) \
+        attributes = Attribute.query_by_road(self.session, self.road.id) \
             .filter(Attribute.ID_Type_Attr.in_(DEFECTS.keys())) \
             .join(ListAttrib) \
             .with_entities(
@@ -496,14 +504,14 @@ class DiagnosticsReport(QObject):
         if self.barrier_data:
             return self.barrier_data
 
-        report = BarringReport()
+        report = BarringReport(self.session)
         data = report(self.road.id)
         self.barrier_data = data
 
         return self.barrier_data
 
     def fill_table_trail_defects(self, table):
-        report = TrailReport()
+        report = TrailReport(self.session)
         data = report(self.road.id)
         for item in data:
             row = table.add_row()
@@ -554,7 +562,7 @@ class DiagnosticsReport(QObject):
             row.cells[3].text = row_item['condition']
 
     def fill_bad_wells_table(self, table):
-        report = BadWellsReport()
+        report = BadWellsReport(self.session)
         data = report(self.road.id)
         for row_item in data:
             row = table.add_row()
@@ -614,10 +622,10 @@ class DiagnosticsReport(QObject):
         column = literal_column("L1 / 100 * 100")
 
         def get_query(direction):
-            return session.query(Attribute).filter(
+            return self.session.query(Attribute).filter(
                 Attribute.ID_Type_Attr == 2310,
                 Attribute.id.in_(
-                    Attribute.query_by_road(session, self.road.id)
+                    Attribute.query_by_road(self.session, self.road.id)
                         .join(Params)
                         .filter(Params.id == '231')
                         .filter(Params.value == direction)
@@ -639,7 +647,7 @@ class DiagnosticsReport(QObject):
 
         qs = forward.union(backward).subquery('t')
 
-        attributes = session.query(
+        attributes = self.session.query(
             qs.c.pos.label('pos'),
             case([(func.max(qs.c.forward) > 0, func.max(qs.c.forward))], else_=func.max(qs.c.backward)).label('forward'),
             case([(func.max(qs.c.backward) > 0, func.max(qs.c.backward)),], else_=func.max(qs.c.forward)).label('backward'),

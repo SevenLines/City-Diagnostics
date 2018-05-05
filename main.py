@@ -1,11 +1,15 @@
+import os
 import sys
 import traceback
 import typing
+
+from PyQt5.QtGui import QBrush
+
 import ui.resources
 
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QThread, QAbstractListModel, QModelIndex, Qt, QSaveFile
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog
+from PyQt5.QtCore import QThread, QAbstractListModel, QModelIndex, Qt, QSaveFile, QRunnable, QThreadPool, QObject
+from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QItemDelegate, QStyledItemDelegate
 
 from db import session
 from models import Road
@@ -50,44 +54,55 @@ class LogModel(QAbstractListModel):
         self.endInsertRows()
 
 
-class ReportWorker(QtCore.QObject):
-    finished = QtCore.pyqtSignal()
+class ReportWorkerSignals(QObject):
+    finished = QtCore.pyqtSignal(object)
     logged = QtCore.pyqtSignal(str, int)
     progressed = QtCore.pyqtSignal(int, int, str)
+
+    def __init__(self, road, *args, **kwargs) -> None:
+        super(ReportWorkerSignals, self).__init__(*args, **kwargs)
+        self.road = road
+
+    @QtCore.pyqtSlot(int, int, str)
+    def onProgress(self, value, max, message):
+        self.progressed.emit(value, max, "{}: {}".format(self.road.Name, message))
+
+
+class ReportWorker(QRunnable):
 
     def __init__(self, road: Road, save_path: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.road = road
         self.save_path = save_path
+        self.signals = ReportWorkerSignals(self.road)
 
-    @QtCore.pyqtSlot()
-    def buildReport(self):
+    def run(self):
         try:
             report = DiagnosticsReport(self.road.id)
-            report.progressed.connect(self.onProgress)
+            report.progressed.connect(self.signals.onProgress)
             doc = report.create()
             doc.save(self.save_path)
-            self.finished.emit()
+            self.signals.finished.emit(self)
         except Exception as ex:
-            self.logged.emit(traceback.format_exc(), 0)
-
-    @QtCore.pyqtSlot(int, int, str)
-    def onProgress(self, value, max, message):
-        self.progressed.emit(value, max, message)
+            self.signals.logged.emit(traceback.format_exc(), 0)
 
 
 class MainWindow(Ui_MainWindow, QMainWindow):
     thread = None
     roads_model = None
     path = "./out/"
+    workers = []
 
     def __init__(self, *args, **kwargs) -> None:
         super(MainWindow, self).__init__(*args, **kwargs)
         self.setupUi(self)
         self.btnGenerate.clicked.connect(self.onGenerate)
 
+        self.pool = QtCore.QThreadPool()
+        self.pool.setMaxThreadCount(4)
+
         self.roads_model = RoadsModel()
-        self.cmbRoad.setModel(self.roads_model)
+        self.lstRoads.setModel(self.roads_model)
 
         self.log_model = LogModel()
         self.lstMessages.setModel(self.log_model)
@@ -98,46 +113,37 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.lblLoading.setMovie(movie)
 
     def onGenerate(self):
-        road = self.roads_model.get_road(self.cmbRoad.currentIndex())
-        self.progressMain.setValue(0)
+        roads = self.lstRoads.selectedIndexes()
         self.log_model.clear()
-        path = QFileDialog.getSaveFileName(directory="{}/{}.docx".format(self.path, road.Name))
-
-        if path[0]:
+        path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
+        if path:
+            self.progressMain.setMaximum(len(roads))
+            self.progressMain.setValue(0)
             self.lblLoading.setVisible(True)
-            self.btnGenerate.setDisabled(True)
-            self.path = path[0]
-            self.thread = QThread()
-            self.worker = ReportWorker(road, self.path)
-            self.worker.moveToThread(self.thread)
-            self.worker.progressed.connect(self.onProgress)
-            self.worker.finished.connect(self.onThreadFinished)
-            self.worker.logged.connect(self.onLogged)
-            self.thread.started.connect(self.worker.buildReport)
-            self.thread.start()
+            for r in roads:
+                road = self.roads_model.get_road(r.row())
+                self.onLogged("Обработка {}".format(road.Name), 2)
+                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(road.Name)))
+                worker.signals.logged.connect(self.onLogged)
+
+                worker.signals.finished.connect(self.onReportFinished)
+                self.workers.append(worker)
+                self.pool.start(worker)
 
     @QtCore.pyqtSlot(str, int)
     def onLogged(self, message, level):
-        if level == 0:
-            self.onThreadFinished()
         self.log_model.log(message, level)
 
-    @QtCore.pyqtSlot()
-    def onThreadFinished(self):
-        self.lblLoading.setVisible(False)
-        self.btnGenerate.setDisabled(False)
-        self.thread.started.disconnect()
-        self.worker.progressed.disconnect()
-        self.worker.finished.disconnect()
-        self.thread.exit()
-        # self.thread = None
-        # self.worker = None
+    @QtCore.pyqtSlot(object)
+    def onReportFinished(self, report):
+        self.progressMain.setValue(self.progressMain.value() + 1)
+        if self.progressMain.value() == self.progressMain.maximum():
+            self.lblLoading.setVisible(False)
+        self.log_model.log("\"{}\" готова".format(report.road.Name), 1)
 
     @QtCore.pyqtSlot(int, int, str)
     def onProgress(self, value, max, message):
-        self.progressMain.setMaximum(max)
-        self.progressMain.setValue(value)
-        self.progressMain.setFormat("{} %p%".format(message))
+        pass
 
 
 if __name__ == '__main__':
