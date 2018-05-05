@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from PyQt5 import QtCore
@@ -44,6 +45,7 @@ class BadWellsReport(object):
             .join(Params).with_entities() \
             .filter(Attribute.ID_Type_Attr.in_(["0602", "0602"])) \
             .filter(Params.id.in_(["3939", "3937"])) \
+            .order_by(Attribute.L1, Attribute.L2) \
             .with_entities(Attribute.L1, Attribute.ID_Type_Attr, Params.value.label("defect"))
 
         out = []
@@ -55,7 +57,7 @@ class BadWellsReport(object):
 
             position = r.L1
 
-            defects = ", ".join([DEFECTS.get(r.ID_Type_Attr)[int(d.strip())] for d in r.defect.split(",")])
+            defects = ", ".join([DEFECTS.get(r.ID_Type_Attr)[int(d.strip())] for d in re.split("[.,]", r.defect)])
 
             out.append((type, position, defects))
 
@@ -175,7 +177,7 @@ class TrailReport(object):
                         '1': 'Разрушение а/б на пересекаемых трамвайных (ж/д) путях',
                         '2': 'Отклонение верха головки рельса трамвайных или железнодорожных путей, '
                              'расположенных в пределах проезжей части, относительно покрытия более 2,0 см.',
-                    }.get(i) for i in i.get(3204).value.split(",")])
+                    }.get(i) for i in re.split("[.,]", i.get(3204).value)])
                 })
 
         return out
@@ -376,7 +378,7 @@ class DiagnosticsReport(QObject):
             }
 
             defect_cell_offset = 4
-            for item in defects['Попереченые трещины']:
+            for item in defects['Попереченые трещины'] or []:
                 if offset <= item[0] <= offset + delta or offset <= item[1] <= offset + delta:
                     if item[2] == None:
                         cell_offset = 0
@@ -417,7 +419,7 @@ class DiagnosticsReport(QObject):
                     })
 
             defect_cell_offset = 16
-            for item in defects['Сетка трещин']:
+            for item in defects['Сетка трещин'] or []:
                 if check_in(item, (offset, offset + 100)):
                     row['defects'].append({
                         'type': 'Сетка трещин',
@@ -431,7 +433,7 @@ class DiagnosticsReport(QObject):
                     })
 
             defect_cell_offset = 19
-            for item in defects['Колейность']:
+            for item in defects['Колейность'] or []:
                 if check_in(item, (offset, offset + 100)):
                     if item[2] == None:
                         cell_offset = 6
@@ -465,7 +467,7 @@ class DiagnosticsReport(QObject):
                     })
 
             defect_cell_offset = 32
-            for item in defects['Выбоины']:
+            for item in defects['Выбоины'] or []:
                 if check_in(item, (offset, offset + 100)):
                     if item[2] == None:
                         cell_offset = 0

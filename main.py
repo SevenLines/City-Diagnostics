@@ -34,6 +34,11 @@ class RoadsModel(QAbstractListModel):
 
 
 class LogModel(QAbstractListModel):
+    ERROR = 0
+    WARNING = 1
+    INFO = 2
+    DEBUG = 3
+
     messages = []
 
     def data(self, index: QModelIndex, role: int = ...) -> typing.Any:
@@ -78,13 +83,14 @@ class ReportWorker(QRunnable):
 
     def run(self):
         try:
+            self.signals.logged.emit("Обработка {}".format(self.road.Name), LogModel.INFO)
             report = DiagnosticsReport(self.road.id)
             report.progressed.connect(self.signals.onProgress)
             doc = report.create()
             doc.save(self.save_path)
             self.signals.finished.emit(self)
         except Exception as ex:
-            self.signals.logged.emit(traceback.format_exc(), 0)
+            self.signals.logged.emit("{}:{}".format(self.road.Name, traceback.format_exc()), LogModel.ERROR)
 
 
 class MainWindow(Ui_MainWindow, QMainWindow):
@@ -99,7 +105,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.btnGenerate.clicked.connect(self.onGenerate)
 
         self.pool = QtCore.QThreadPool()
-        self.pool.setMaxThreadCount(4)
+        self.pool.setMaxThreadCount(8)
 
         self.roads_model = RoadsModel()
         self.lstRoads.setModel(self.roads_model)
@@ -122,7 +128,6 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.lblLoading.setVisible(True)
             for r in roads:
                 road = self.roads_model.get_road(r.row())
-                self.onLogged("Обработка {}".format(road.Name), 2)
                 worker = ReportWorker(road, os.path.join(path, "{}.docx".format(road.Name)))
                 worker.signals.logged.connect(self.onLogged)
 
@@ -132,6 +137,11 @@ class MainWindow(Ui_MainWindow, QMainWindow):
 
     @QtCore.pyqtSlot(str, int)
     def onLogged(self, message, level):
+        if level == LogModel.ERROR:
+            self.progressMain.setValue(self.progressMain.value() + 1)
+            if self.progressMain.value() == self.progressMain.maximum():
+                self.lblLoading.setVisible(False)
+
         self.log_model.log(message, level)
 
     @QtCore.pyqtSlot(object)
