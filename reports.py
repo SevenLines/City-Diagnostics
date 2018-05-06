@@ -329,6 +329,14 @@ class DiagnosticsReport(QObject):
 
             LMax = max(LMax, r.L1, r.L2)
 
+        longitudinal_cracks = defects.get("Продольные трещины", [])
+        longitudinal_cracks_ranges = []
+        if longitudinal_cracks:
+            rng = Range(self.start, self.end)
+            for r in longitudinal_cracks:
+                rng.add_subrange(r[0], r[1] if r[1] > r[0] else r[0] + 1, 1)
+            longitudinal_cracks_ranges = [i for i in rng.ranges if i[2]]
+
         transverse_cracks = defects.get("Попереченые трещины", [])
         transverse_cracks_ranges = []
         if transverse_cracks:
@@ -349,6 +357,7 @@ class DiagnosticsReport(QObject):
 
         return {
             'Попереченые трещины': transverse_cracks_ranges,
+            'Продольные трещины': longitudinal_cracks_ranges,
             'Выбоины': potholes_ranges,
             'Колейность': koleynost,
             'Сетка трещин': defects.get("Сетка трещин"),
@@ -376,6 +385,19 @@ class DiagnosticsReport(QObject):
                 "defects": [],
                 "score": 0,
             }
+
+            defect_cell_offset = 3
+            for item in defects['Продольные трещины'] or []:
+                if check_in(item, (offset, offset + 100)):
+                    row['defects'].append({
+                        'type': 'Продольные боковые трещины',
+                        'short': "+",
+                        "cell": defect_cell_offset,
+                        'alone': False,
+                        'score': 3.5,
+                        'length': item[0] - item[1],
+                        'description': "продольные боковые трещины"
+                    })
 
             defect_cell_offset = 4
             for item in defects['Попереченые трещины'] or []:
@@ -417,6 +439,8 @@ class DiagnosticsReport(QObject):
                             }.get(item[2])
                         )
                     })
+
+
 
             defect_cell_offset = 16
             for item in defects['Сетка трещин'] or []:
