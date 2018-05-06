@@ -125,12 +125,12 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         if path:
             self.progressMain.setMaximum(len(roads))
             self.progressMain.setValue(0)
+            self.btnGenerate.setDisabled(True)
             self.lblLoading.setVisible(True)
             for r in roads:
                 road = self.roads_model.get_road(r.row())
-                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(road.Name)))
+                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(road.Name[:30])))
                 worker.signals.logged.connect(self.onLogged)
-
                 worker.signals.finished.connect(self.onReportFinished)
                 self.workers.append(worker)
                 self.pool.start(worker)
@@ -141,6 +141,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.progressMain.setValue(self.progressMain.value() + 1)
             if self.progressMain.value() == self.progressMain.maximum():
                 self.lblLoading.setVisible(False)
+                self.btnGenerate.setDisabled(False)
 
         self.log_model.log(message, level)
 
@@ -149,11 +150,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.progressMain.setValue(self.progressMain.value() + 1)
         if self.progressMain.value() == self.progressMain.maximum():
             self.lblLoading.setVisible(False)
+            self.btnGenerate.setDisabled(False)
         self.log_model.log("\"{}\" готова".format(report.road.Name), 1)
-
-    @QtCore.pyqtSlot(int, int, str)
-    def onProgress(self, value, max, message):
-        pass
 
 
 if __name__ == '__main__':

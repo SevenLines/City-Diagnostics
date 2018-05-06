@@ -533,10 +533,11 @@ class DiagnosticsReport(QObject):
             for row_item in data_row['defects']:
                 row.cells[row_item['cell']].text = row_item['short']
 
-        cell = table.rows[3].cells[0]
-        cell.merge(table.rows[2 + len(defects)].cells[0])
-        cell.text = self.road.Name
-        set_vertical_cell_direction(cell, 'tbRl')
+        if len(defects) > 3:
+            cell = table.rows[3].cells[0]
+            cell.merge(table.rows[2 + len(defects)].cells[0])
+            cell.text = self.road.Name
+            set_vertical_cell_direction(cell, 'tbRl')
 
     def fill_table_defects_by_odn_verbose(self, table):
         defects = self.get_defects()
