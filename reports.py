@@ -604,7 +604,7 @@ class DiagnosticsReport(QObject):
         row = table.add_row()
         row.cells[0].text = self.road.Name
         row.cells[1].text = "???категория"  # категория
-        row.cells[2].text = get_km(self.end - max(0, self.start))
+        row.cells[2].text = str(round(float(self.end - max(0, self.start)) / 1000, 3))  # Протяженность, км
 
         score_cols = [0, 0, 0, 0, 0]
         potholes_count = 0
@@ -619,10 +619,10 @@ class DiagnosticsReport(QObject):
                         other_alone_defects_count += 1
 
         for idx, value in enumerate(score_cols):
-            row.cells[3 + 4 - idx].text = get_km(value)
+            row.cells[3 + 4 - idx].text = str(round(value / 1000, 3))  # Протяженность участков покрытия, с оценкой состояния, км
 
-        row.cells[8].text = str(potholes_count)
-        row.cells[9].text = str(other_alone_defects_count)
+        row.cells[8].text = str(potholes_count)  # Одиночные выбоины и проломы ДО, шт
+        row.cells[9].text = str(other_alone_defects_count)  # Прочие точечные дефекты, шт
 
         barrier_good = 0
         barrier_bad = 0
@@ -638,9 +638,10 @@ class DiagnosticsReport(QObject):
 
         barrier_without = sum([i[1] - i[0] for i in barrier_range.ranges if i[2] is None])
 
-        row.cells[10].text = get_km(barrier_good)
-        row.cells[11].text = get_km(barrier_bad)
-        row.cells[12].text = get_km(barrier_without)
+        # Протяженность участков ограждений, км
+        row.cells[10].text = str(round(barrier_good / 1000, 3))
+        row.cells[11].text = str(round(barrier_bad / 1000, 3))
+        row.cells[12].text = str(round(barrier_without / 1000, 3))
 
     def fill_smooth_data(self, table):
         table.rows[0].cells[0].text = self.road.Name
