@@ -129,7 +129,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.lblLoading.setVisible(True)
             for r in roads:
                 road = self.roads_model.get_road(r.row())
-                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(road.Name[:30])))
+                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(road.Name[:100])))
                 worker.signals.logged.connect(self.onLogged)
                 worker.signals.finished.connect(self.onReportFinished)
                 self.workers.append(worker)
