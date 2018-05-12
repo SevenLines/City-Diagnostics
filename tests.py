@@ -5,6 +5,16 @@ from reports import DiagnosticsReport
 
 
 class RangeTestCase(TestCase):
+    def test_exact_overlap(self):
+        range = Range(0, 1000)
+        range.add_subrange(0, 50, 3)
+        range.add_subrange(50, 80, 3)
+
+        self.assertEqual(range.ranges, [
+            (0, 80, 3),
+            (80, 1000, None),
+        ])
+
     def test_overlap(self):
         range = Range(0, 1000)
         range._ranges = [
@@ -174,3 +184,7 @@ class TestReport(TestCase):
     def test_it_works(self):
         report = DiagnosticsReport(5)
         doc = report.create()
+
+    def test_width_report(self):
+        report = DiagnosticsReport(2)
+        width = report.get_width_data()

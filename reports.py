@@ -10,7 +10,7 @@ from PyQt5.QtCore import QObject
 from sqlalchemy import or_, and_, func, text, literal_column, case
 
 from db import session, Session
-from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg
+from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg, RangeCustom
 from models import Attribute, Params, ListAttrib, Road
 
 
@@ -536,6 +536,73 @@ class DiagnosticsReport(QObject):
 
         return self.barrier_data
 
+    def get_width_data(self):
+        """
+        Проверка кромки:
+SELECT t.count, R.ID_Road, rtrim(R.Name)
+FROM (
+  SELECT
+    ID_High,
+    count(*) as count
+  FROM Attribute
+  WHERe ID_Type_Attr = 010108 -- and ID_High = 2-- ID_Attribute = 976541
+  GROUP BY ID_High
+) t
+JOIN High h ON t.ID_High = h.ID_High
+JOIN Way W on h.ID_Way = W.ID_Way
+JOIN Road R on W.ID_Road = R.ID_Road
+ORDER BY 1
+        """
+        attributes = Attribute.query_by_road(self.session, self.road.id).filter(
+            Attribute.ID_Type_Attr == '010108'
+        )
+
+        attributes = list(attributes)
+        if len(attributes) == 2:
+            left_points = attributes[0].points
+            right_points = attributes[1].points
+            left_points.sort(key=lambda x: x.l)
+            right_points.sort(key=lambda x: x.l)
+
+            rng = RangeCustom(
+                min=max(0, self.start),
+                max=self.end,
+                join_function=lambda x, y: (x or 0) + (y or 0)
+            )
+
+            if left_points[0].a >= right_points[0].a:
+                left_points, right_points = right_points, left_points
+
+            previous_point = left_points[0]
+            for p in left_points[1:]:
+                value = abs((((previous_point.a + p.a) / 2) // 0.5) * 0.5)
+                rng.add_subrange(
+                    previous_point.l,
+                    p.l,
+                    value,
+                )
+                previous_point = p
+
+            previous_point = right_points[0]
+            for p in right_points[1:]:
+                value = abs((((previous_point.a + p.a) / 2) // 0.5) * 0.5)
+                rng.add_subrange(
+                    previous_point.l,
+                    p.l,
+                    value,
+                )
+                previous_point = p
+
+            # remove duplicates
+            out_range = Range(
+                min=max(0, self.start),
+                max=self.end,
+            )
+            for r in rng.ranges:
+                out_range.add_subrange(*r)
+
+            return out_range.ranges
+
     def fill_table_trail_defects(self, table):
         report = TrailReport(self.session)
         data = report(self.road.id)
@@ -643,6 +710,18 @@ class DiagnosticsReport(QObject):
         row.cells[11].text = str(round(barrier_bad / 1000, 3))
         row.cells[12].text = str(round(barrier_without / 1000, 3))
 
+    def fill_width_data(self, table):
+        ranges = self.get_width_data()
+
+        for start, end, value in ranges:
+            row = table.add_row()
+            row.cells[0].text = self.road.Name
+            row.cells[1].text = "{} - {}".format(get_km(int(start)), get_km(int(end)))
+            row.cells[2].text = str(value)
+            row.cells[3].text = "???"
+            row.cells[4].text = "???"
+            row.cells[5].text = "???категория"
+
     def fill_smooth_data(self, table):
         table.rows[0].cells[0].text = self.road.Name
         table.rows[1].cells[0].text = "«Дата»: {:%d.%m.%Y}".format(datetime.now())
@@ -691,10 +770,12 @@ class DiagnosticsReport(QObject):
                 row.cells[4].text = '???категория'
                 row.cells[5].text = 'усовершенствованная'
 
+
+
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")
 
-        count = 7
+        count = 8
 
         self.progressed.emit(0, count, "Заполняю итоговую таблицу")
         table = doc.tables[0]
@@ -712,16 +793,20 @@ class DiagnosticsReport(QObject):
         table = doc.tables[3]
         self.fill_table_barring_table(table)
 
-        self.progressed.emit(4, count, "Заполняю таблицу по колодцам")
+        self.progressed.emit(4, count, "Заполняю cводную ведомость категорий")
         table = doc.tables[4]
+        self.fill_width_data(table)
+
+        self.progressed.emit(5, count, "Заполняю таблицу по колодцам")
+        table = doc.tables[5]
         self.fill_bad_wells_table(table)
 
-        self.progressed.emit(5, count, "Заполняю таблицу по трамвайным путям")
-        table = doc.tables[5]
+        self.progressed.emit(6, count, "Заполняю таблицу по трамвайным путям")
+        table = doc.tables[6]
         self.fill_table_trail_defects(table)
 
-        self.progressed.emit(6, count, "Заполняю таблицу по ровности")
-        table = doc.tables[6]
+        self.progressed.emit(7, count, "Заполняю таблицу по ровности")
+        table = doc.tables[7]
         self.fill_smooth_data(table)
 
         self.progressed.emit(count, count, "Готово")

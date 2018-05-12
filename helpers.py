@@ -26,6 +26,9 @@ class Range(object):
     def join_function(self, old_value, new_value):
         return new_value
 
+    def equal_function(self, old_value, new_value):
+        return old_value == new_value
+
     @property
     def ranges(self):
         return self._ranges
@@ -41,16 +44,19 @@ class Range(object):
 
         start = max(start, self.min)
         end = max(start, min(end, self.max))
+        done = False
         if start > end:
             return
 
         for idx, r in enumerate(self._ranges):
-            if r[0] <= start < r[1]:
+            if r[0] <= start <= r[1]:
                 r_to_add = (r[0], start, r[2])
+                if done:
+                    continue
                 for idx2, r2 in list(enumerate(self._ranges))[idx:]:
                     if r2[0] < end <= r2[1]:
                         new_value = self.join_function(r2[2], value)
-                        if r_to_add[2] != new_value:
+                        if not self.equal_function(r_to_add[2], new_value):
                             if r_to_add[1] - r_to_add[0] != 0:
                                 new_range.append(r_to_add)
                             r_to_add = (r_to_add[1], end, new_value)
@@ -59,10 +65,11 @@ class Range(object):
                         new_range.append(r_to_add)
                         if end != r2[1]:
                             new_range.append((end, r2[1], r2[2]))
+                        done = True
                         break
                     else:
                         new_value = self.join_function(r2[2], value)
-                        if r_to_add[2] != new_value:
+                        if not self.equal_function(r_to_add[2], new_value):
                             if r_to_add[1] - r_to_add[0] != 0:
                                 new_range.append(r_to_add)
                             r_to_add = (r_to_add[1], r2[1], new_value)
@@ -84,3 +91,12 @@ class RangeAvg(Range):
             delimiter += 1
 
         return ((old_value or 0) + (new_value or 0)) / 2
+
+
+class RangeCustom(Range):
+    def __init__(self, *args, **kwargs) -> None:
+        if 'join_function' in kwargs:
+            self.join_function = kwargs.pop('join_function')
+        if 'equal_function' in kwargs:
+            self.equal_function = kwargs.pop('equal_function')
+        super().__init__(*args, **kwargs)
