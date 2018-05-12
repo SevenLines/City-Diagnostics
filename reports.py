@@ -556,52 +556,60 @@ ORDER BY 1
         attributes = Attribute.query_by_road(self.session, self.road.id).filter(
             Attribute.ID_Type_Attr == '010108'
         )
-
         attributes = list(attributes)
-        if len(attributes) == 2:
-            left_points = attributes[0].points
-            right_points = attributes[1].points
-            left_points.sort(key=lambda x: x.l)
-            right_points.sort(key=lambda x: x.l)
 
-            rng = RangeCustom(
-                min=max(0, self.start),
-                max=self.end,
-                join_function=lambda x, y: (x or 0) + (y or 0)
-            )
+        # get periods by
+        kromka_periods = RangeCustom(
+            min=max(0, self.start),
+            max=self.end,
+            join_function=lambda x, y: (x or set()).union({y})
+        )
 
-            if left_points[0].a >= right_points[0].a:
-                left_points, right_points = right_points, left_points
+        for idx, a in enumerate(attributes):
+            points = sorted(a.points, key=lambda x: x.l)
+            previous_point = points[0]
+            for p in points[1:]:
+                kromka_periods.add_subrange(previous_point.l, p.l, idx)
 
-            previous_point = left_points[0]
-            for p in left_points[1:]:
-                value = abs((((previous_point.a + p.a) / 2) // 0.5) * 0.5)
-                rng.add_subrange(
-                    previous_point.l,
-                    p.l,
-                    value,
-                )
-                previous_point = p
+        rng = RangeCustom(
+            min=max(0, self.start),
+            max=self.end,
+            join_function=lambda x, y: (x or 0) + (y or 0)
+        )
 
-            previous_point = right_points[0]
-            for p in right_points[1:]:
-                value = abs((((previous_point.a + p.a) / 2) // 0.5) * 0.5)
-                rng.add_subrange(
-                    previous_point.l,
-                    p.l,
-                    value,
-                )
-                previous_point = p
+        for start, end, idxs in kromka_periods.ranges:
+            if idxs:
+                idxs = list(idxs)
+                if len(idxs) == 2:
+                    left_points = attributes[idxs[0]].points
+                    right_points = attributes[idxs[1]].points
+                    left_points.sort(key=lambda x: x.l)
+                    right_points.sort(key=lambda x: x.l)
 
-            # remove duplicates
-            out_range = Range(
-                min=max(0, self.start),
-                max=self.end,
-            )
-            for r in rng.ranges:
-                out_range.add_subrange(*r)
+                    if left_points[0].a >= right_points[0].a:
+                        left_points, right_points = right_points, left_points
 
-            return out_range.ranges
+                    for points in (left_points, right_points):
+                        previous_point = points[0]
+                        for p in points[1:]:
+                            value = abs((((previous_point.a + p.a) / 2) // 0.5) * 0.5)
+                            rng.add_subrange(
+                                max(start, previous_point.l),
+                                min(end, p.l),
+                                value,
+                            )
+                            previous_point = p
+
+        # remove duplicates
+        out_range = Range(
+            min=max(0, self.start),
+            max=self.end,
+        )
+
+        for r in rng.ranges:
+            out_range.add_subrange(*r)
+
+        return out_range.ranges
 
     def fill_table_trail_defects(self, table):
         report = TrailReport(self.session)

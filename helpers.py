@@ -49,10 +49,8 @@ class Range(object):
             return
 
         for idx, r in enumerate(self._ranges):
-            if r[0] <= start <= r[1]:
+            if r[0] <= start <= r[1] and not done:
                 r_to_add = (r[0], start, r[2])
-                if done:
-                    continue
                 for idx2, r2 in list(enumerate(self._ranges))[idx:]:
                     if r2[0] < end <= r2[1]:
                         new_value = self.join_function(r2[2], value)

@@ -186,5 +186,5 @@ class TestReport(TestCase):
         doc = report.create()
 
     def test_width_report(self):
-        report = DiagnosticsReport(2)
+        report = DiagnosticsReport(203)
         width = report.get_width_data()
