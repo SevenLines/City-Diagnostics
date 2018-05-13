@@ -120,7 +120,7 @@ class BarringReport(object):
 
         out = []
         for r in attributes:
-            range_ = "{} - {}".format(get_km(r.L1), get_km(r.L2))
+            range_ = "{} - {}".format(get_km(max(0, r.L1)), get_km(r.L2))
             type_ = r.name_attribute
             condition = "плохое" if r.value else "хорошее"
 
@@ -132,8 +132,8 @@ class BarringReport(object):
                 "Позиция": position,
                 "Тип": type_,
                 "condition": condition,
-                "length": r.L2 - r.L1,
-                'start': r.L1,
+                "length": r.L2 - max(0, r.L1),
+                'start': max(0, r.L1),
                 'end': r.L2,
                 'is_barrier': r.ID_Type_Attr != '010109'
             })
@@ -613,7 +613,7 @@ ORDER BY 1
         for r in rng.ranges:
             out_range.add_subrange(*r)
 
-        return out_range.ranges
+        return [r for r in out_range.ranges if r[2] is not None]
 
     def fill_table_trail_defects(self, table):
         report = TrailReport(self.session)

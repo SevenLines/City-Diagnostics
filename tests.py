@@ -182,7 +182,7 @@ class RangeTestCase(TestCase):
 
 class TestReport(TestCase):
     def test_it_works(self):
-        report = DiagnosticsReport(5)
+        report = DiagnosticsReport(243)
         doc = report.create()
 
     def test_width_report(self):
