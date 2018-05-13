@@ -195,6 +195,9 @@ class DiagnosticsReport(QObject):
         self.road = self.session.query(Road).get(road_id)
         self.start, self.end = self.road.get_length(self.session)
 
+    def close(self):
+        self.session.close()
+
     @classmethod
     def calculate_delta_to_next(cls, data, max_value=None):
         preprocessed = []
@@ -570,6 +573,7 @@ ORDER BY 1
             previous_point = points[0]
             for p in points[1:]:
                 kromka_periods.add_subrange(previous_point.l, p.l, idx)
+                previous_point = p
 
         rng = RangeCustom(
             min=max(0, self.start),

@@ -88,6 +88,7 @@ class ReportWorker(QRunnable):
             report.progressed.connect(self.signals.onProgress)
             doc = report.create()
             doc.save(self.save_path)
+            report.close()
             self.signals.finished.emit(self)
         except Exception as ex:
             self.signals.logged.emit("{}:{}".format(self.road.Name, traceback.format_exc()), LogModel.ERROR)
