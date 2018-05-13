@@ -10,7 +10,7 @@ from PyQt5.QtCore import QObject
 from sqlalchemy import or_, and_, func, text, literal_column, case
 
 from db import session, Session
-from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg, RangeCustom
+from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg, RangeCustom, add_row
 from models import Attribute, Params, ListAttrib, Road
 
 
@@ -615,10 +615,11 @@ ORDER BY 1
         report = TrailReport(self.session)
         data = report(self.road.id)
         for item in data:
-            row = table.add_row()
-            row.cells[0].text = item['type']
-            row.cells[1].text = get_km(int((item['start'] + item['end']) / 2))
-            row.cells[2].text = item['defect']
+            row = add_row(table, [
+                item['type'],
+                get_km(int((item['start'] + item['end']) / 2)),
+                item['defect'],
+            ])
 
     def fill_table_defects_by_odn(self, table):
         """Сводная ведомость наличия или отсутствия дефектов на участках автомобильных дорог"""
@@ -628,9 +629,10 @@ ORDER BY 1
 
         for idx, data_row in enumerate(defects):
             row = table.add_row()
-            row.cells[1].text = data_row['address']
+            cells = row.cells
+            cells[1].text = data_row['address']
             for row_item in data_row['defects']:
-                row.cells[row_item['cell']].text = row_item['short']
+                cells[row_item['cell']].text = row_item['short']
 
         if len(defects) > 3:
             cell = table.rows[3].cells[0]
@@ -642,35 +644,27 @@ ORDER BY 1
         defects = self.get_defects()
 
         for idx, data_row in enumerate(defects):
-            row = table.add_row()
-            row.cells[0].text = self.road.Name
-            row.cells[1].text = data_row['address']
-            row.cells[2].text = ", ".join(list({i['description'] for i in data_row['defects'] if not i['alone']}))
-            row.cells[3].text = ", ".join(
-                list({
-                    "{} ({})".format(i['description'], get_km(int(i['address']))) for i in data_row['defects'] if i['alone']
-                })
-            )
-
-            row.cells[4].text = str(data_row['score']) if data_row['score'] else '-'
+            row = add_row(table, [
+                self.road.Name,
+                data_row['address'],
+                ", ".join(list({i['description'] for i in data_row['defects'] if not i['alone']})),
+                ", ".join(list({"{} ({})".format(
+                    i['description'],
+                    get_km(int(i['address']))
+                ) for i in data_row['defects'] if i['alone']})),
+                str(data_row['score']) if data_row['score'] else '-'
+            ])
 
     def fill_table_barring_table(self, table):
         data = self.get_barrier_data()
         for row_item in data:
-            row = table.add_row()
-            row.cells[0].text = self.road.Name
-            row.cells[1].text = row_item['Участок']
-            row.cells[2].text = row_item['Тип']
-            row.cells[3].text = row_item['condition']
+            row = add_row(table, [self.road.Name, row_item['Участок'], row_item['Тип'], row_item['condition']])
 
     def fill_bad_wells_table(self, table):
         report = BadWellsReport(self.session)
         data = report(self.road.id)
         for row_item in data:
-            row = table.add_row()
-            row.cells[0].text = row_item[0]
-            row.cells[1].text = get_km(row_item[1])
-            row.cells[2].text = row_item[2]
+            row = add_row(table, [row_item[0], get_km(row_item[1]), row_item[2]])
 
     def fill_totals(self, table):
         defects = self.get_defects()
@@ -722,13 +716,14 @@ ORDER BY 1
         ranges = self.get_width_data()
 
         for start, end, value in ranges:
-            row = table.add_row()
-            row.cells[0].text = self.road.Name
-            row.cells[1].text = "{} - {}".format(get_km(int(start)), get_km(int(end)))
-            row.cells[2].text = str(value)
-            row.cells[3].text = "???"
-            row.cells[4].text = "???"
-            row.cells[5].text = "???категория"
+            row = add_row(table, [
+                self.road.Name,
+                "{} - {}".format(get_km(int(start)), get_km(int(end))),
+                str(value),
+                "???",
+                "???",
+                "???категория",
+            ])
 
     def fill_smooth_data(self, table):
         table.rows[0].cells[0].text = self.road.Name
@@ -770,15 +765,14 @@ ORDER BY 1
 
         for a in attributes:
             if a.pos < self.end:
-                row = table.add_row()
-                row.cells[0].text = str(round(a.backward, 2))
-                row.cells[1].text = str(round(a.forward, 2))
-                row.cells[2].text = "{}".format(self.end - a.pos if a.pos + self.delta > self.end else self.delta)
-                row.cells[3].text = get_km(a.pos)
-                row.cells[4].text = '???категория'
-                row.cells[5].text = 'усовершенствованная'
-
-
+                row = add_row(table, [
+                    str(round(a.backward, 2)),
+                    str(round(a.forward, 2)),
+                    "{}".format(self.end - a.pos if a.pos + self.delta > self.end else self.delta),
+                    get_km(a.pos),
+                    '???категория',
+                    'усовершенствованная',
+                ])
 
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")

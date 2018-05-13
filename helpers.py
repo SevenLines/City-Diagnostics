@@ -1,7 +1,21 @@
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.table import _Cell
+from docx.table import _Cell, _Row
 
+
+def add_row(table, data):
+    tbl = table._tbl
+    tr = tbl.add_tr()
+    for idx, gridCol in enumerate(tbl.tblGrid.gridCol_lst):
+        tc = tr.add_tc()
+        tc.width = gridCol.w
+
+        tc.clear_content()
+        p = tc.add_p()
+        r = p.add_r()
+        r.text = data[idx]
+
+    return _Row(tr, table)
 
 def set_vertical_cell_direction(cell: _Cell, direction: str):
     # tbRl -- top to bottom, btLr -- bottom to top
