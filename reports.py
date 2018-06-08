@@ -11,7 +11,7 @@ from sqlalchemy import or_, and_, func, text, literal_column, case
 
 from db import session, Session
 from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg, RangeCustom, add_row
-from models import Attribute, Params, ListAttrib, Road
+from models import Attribute, Params, ListAttrib, Road, High, Way
 
 
 def get_km(value):
@@ -164,7 +164,7 @@ class TrailReport(object):
         )
 
         data = [self._get_info(key, list(items)) for key, items in groupby(attributes, key=lambda x: x.id)]
-        data = [i for i in data if i.get(3204)]
+        data = [i for i in data if i.get(3204, '')]
 
         out = []
         for i in data:
@@ -172,7 +172,7 @@ class TrailReport(object):
                 out.append({
                     "start": i['L1'],
                     "end": i['L2'],
-                    "type": i.get(3205).value,
+                    "type": i.get(3205).value if 3205 in i else '',
                     "defect": ", ".join([{
                         '1': 'Разрушение а/б на пересекаемых трамвайных (ж/д) путях',
                         '2': 'Отклонение верха головки рельса трамвайных или железнодорожных путей, '
@@ -193,6 +193,8 @@ class DiagnosticsReport(QObject):
         self.barrier_data = None
         self.delta = 100
         self.road = self.session.query(Road).get(road_id)
+        self.info = None
+        self.smoothnes = None
         self.start, self.end = self.road.get_length(self.session)
 
     def close(self):
@@ -302,17 +304,20 @@ class DiagnosticsReport(QObject):
                 "title": "Трещины",
             }
         }
-        attributes = Attribute.query_by_road(self.session, self.road.id) \
-            .filter(Attribute.ID_Type_Attr.in_(DEFECTS.keys())) \
-            .join(ListAttrib) \
-            .with_entities(
+        attributes = self.session.query(
             Attribute.L1,
             Attribute.L2,
             Attribute.ID_Type_Attr,
             ListAttrib.name_attribute,
             Attribute.Image_Counts,
             Attribute.Image_Points
-        ).order_by(Attribute.L1, Attribute.L2)
+        )\
+            .join(High)\
+            .join(Way)\
+            .filter(Way.road_id == self.road.id) \
+            .filter(Attribute.ID_Type_Attr.in_(DEFECTS.keys())) \
+            .join(ListAttrib, ListAttrib.id == Attribute.ID_Type_Attr) \
+            .order_by(Attribute.L1, Attribute.L2)
 
         defects = {}
         LMax = 0
@@ -673,10 +678,11 @@ ORDER BY 1
     def fill_totals(self, table):
         defects = self.get_defects()
         barriers = self.get_barrier_data()
+        info = self.get_road_type_and_category()
 
         row = table.add_row()
         row.cells[0].text = self.road.Name
-        row.cells[1].text = "???категория"  # категория
+        row.cells[1].text = info['category']  # категория
         row.cells[2].text = str(round(float(self.end - max(0, self.start)) / 1000, 3))  # Протяженность, км
 
         score_cols = [0, 0, 0, 0, 0]
@@ -717,6 +723,7 @@ ORDER BY 1
         row.cells[12].text = str(round(barrier_without / 1000, 3))
 
     def fill_width_data(self, table):
+        info = self.get_road_type_and_category()
         ranges = self.get_width_data()
 
         for start, end, value in ranges:
@@ -724,15 +731,15 @@ ORDER BY 1
                 self.road.Name,
                 "{} - {}".format(get_km(int(start)), get_km(int(end))),
                 str(value),
-                "???",
-                "???",
-                "???категория",
+                "-",
+                "2",
+                info['category'],
             ])
 
-    def fill_smooth_data(self, table):
-        table.rows[0].cells[0].text = self.road.Name
-        table.rows[1].cells[0].text = "«Дата»: {:%d.%m.%Y}".format(datetime.now())
-
+    def get_smooth_data(self):
+        if self.smoothnes:
+           return self.smoothnes
+        self.smoothnes = []
         column = literal_column("L1 / 100 * 100")
 
         def get_query(direction):
@@ -767,52 +774,159 @@ ORDER BY 1
             case([(func.max(qs.c.backward) > 0, func.max(qs.c.backward)),], else_=func.max(qs.c.forward)).label('backward'),
         ).group_by(qs.c.pos)
 
+        info = self.get_road_type_and_category()
+        max_iri = {
+            '1': 4,
+            '1В': 4.5,
+            '1B': 4.5,
+            '2': 4.5,
+            '3': 5.5,
+            '4': 6.5,
+        }.get(info['category'], 5.5)
+
         for a in attributes:
             if a.pos < self.end:
+                self.smoothnes.append({
+                    'backward': round(a.backward, 2),
+                    'forward': round(a.forward, 2),
+                    'delta': self.end - a.pos if a.pos + self.delta > self.end else self.delta,
+                    'pos': a.pos,
+                    'is_bad': max(a.backward, a.forward) > max_iri
+                })
+
+        return self.smoothnes
+
+    def fill_smooth_data(self, table):
+        table.rows[0].cells[0].text = self.road.Name
+        table.rows[1].cells[0].text = "«Дата»: {:%d.%m.%Y}".format(datetime.now())
+
+        smoothnes = self.get_smooth_data()
+        info = self.get_road_type_and_category()
+
+        for a in smoothnes:
+            row = add_row(table, [
+                str(a['backward']),
+                str(a['forward']),
+                "{}".format(a['delta']),
+                get_km(a['pos']),
+                info['category'],
+                info['type'],
+            ])
+
+    def get_road_type_and_category(self):
+        if self.info:
+            return self.info
+        attributes = Attribute.query_by_road(self.session, self.road.id).filter(
+            Attribute.ID_Type_Attr.in_(['2320', '2306'])  # Тип покрытия, Категория
+        ).join(Params, Params.attribute_id == Attribute.id).with_entities(
+            Attribute.ID_Type_Attr,
+            Params.value
+        )
+
+        attributes = list(attributes)
+
+        attributes = {
+            a.ID_Type_Attr: a.value for a in attributes
+        }
+
+        self.info = {
+            'category': attributes.get('2306', '???категория'),
+            'type': attributes.get('2320', '???покрытие'),
+        }
+
+        return self.info
+
+    def fill_not_normativ(self, table):
+        smoothnes = self.get_smooth_data()
+
+        for a in smoothnes:
+            row = add_row(table, [
+                "{} — {}".format(get_km(a['pos']), get_km(a['pos'] + a['delta'])),
+                'не соответствует' if a['is_bad'] else 'соответствует',
+                'Значение показателя продольной ровности '
+                'покрытия по индексу IRI более требований, '
+                'указанных в табл. 1 ГОСТ 33220-2015' if a['is_bad'] else '-',
+            ])
+
+    def fill_not_normativ_works(self, table):
+        defects = self.get_defects()
+        smoothnes = self.get_smooth_data()
+
+        for idx, data_row in enumerate(defects):
+            smooth = smoothnes[idx]
+            if smooth['is_bad']:
                 row = add_row(table, [
-                    str(round(a.backward, 2)),
-                    str(round(a.forward, 2)),
-                    "{}".format(self.end - a.pos if a.pos + self.delta > self.end else self.delta),
-                    get_km(a.pos),
-                    '???категория',
-                    'усовершенствованная',
+                    "{} — {}".format(get_km(smooth['pos']), get_km(smooth['pos'] + smooth['delta'])),
+                    'Капитальный ремонт участка улицы' if data_row['score'] < 3 else 'Ремонт покрытия проезжей части'
                 ])
+
+    def fill_total_paragpraph(self, paragraph1, paragraph2):
+        smoothnes = self.get_smooth_data()
+
+        if all([i['is_bad'] for i in smoothnes]):
+            text = "Техническое и эксплуатационное состояния автомобильной дороги " \
+                   "не соответствует существующему режиму движения"
+            text2 = "Техническое и эксплуатационное состояния автомобильной дороги на всем протяжении " \
+                    "не соответствует установленной категории автомобильной дороги"
+        elif all([not i['is_bad'] for i in smoothnes]):
+            text = "Техническое и эксплуатационное состояния автомобильной дороги " \
+                   "соответствует существующему режиму движения"
+            text2 = "Техническое и эксплуатационное состояния автомобильной дороги на всем протяжении " \
+                    "соответствует установленной категории автомобильной дороги"
+        else:
+            text = "Техническое и эксплуатационное состояния автомобильной дороги " \
+                   "на некоторых участках не соответствует существующему режиму движения."
+            text2 = "Техническое и эксплуатационное состояния автомобильной дороги " \
+                    "на некоторых участках не соответствует установленной категории автомобильной дороги"
+
+        paragraph1.text = text
+        paragraph2.text = text2
 
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")
 
-        count = 8
+        count = 10
 
-        self.progressed.emit(0, count, "Заполняю итоговую таблицу")
+        self.fill_total_paragpraph(doc.paragraphs[1], doc.paragraphs[2])
+
+        self.progressed.emit(0, count, "Заполняю не отвечающих нормативным требованиям таблицу")
         table = doc.tables[0]
+        self.fill_not_normativ(table)
+
+        self.progressed.emit(1, count, "Заполняю мероприятия по участкам не отвечающим нормативным требованиям таблицу")
+        table = doc.tables[1]
+        self.fill_not_normativ_works(table)
+
+        self.progressed.emit(2, count, "Заполняю итоговую таблицу")
+        table = doc.tables[2]
         self.fill_totals(table)
 
-        self.progressed.emit(1, count, "Заполняю таблицу по дефектам")
-        table = doc.tables[1]
+        self.progressed.emit(3, count, "Заполняю таблицу по дефектам")
+        table = doc.tables[3]
         self.fill_table_defects_by_odn_verbose(table)
 
-        self.progressed.emit(2, count, "Заполняю итоговую таблицу по дефектам")
-        table = doc.tables[2]
+        self.progressed.emit(4, count, "Заполняю итоговую таблицу по дефектам")
+        table = doc.tables[4]
         self.fill_table_defects_by_odn(table)
 
-        self.progressed.emit(3, count, "Заполняю таблицу по ограждениям")
-        table = doc.tables[3]
+        self.progressed.emit(5, count, "Заполняю таблицу по ограждениям")
+        table = doc.tables[5]
         self.fill_table_barring_table(table)
 
-        self.progressed.emit(4, count, "Заполняю cводную ведомость категорий")
-        table = doc.tables[4]
+        self.progressed.emit(6, count, "Заполняю cводную ведомость категорий")
+        table = doc.tables[6]
         self.fill_width_data(table)
 
-        self.progressed.emit(5, count, "Заполняю таблицу по колодцам")
-        table = doc.tables[5]
+        self.progressed.emit(7, count, "Заполняю таблицу по колодцам")
+        table = doc.tables[7]
         self.fill_bad_wells_table(table)
 
-        self.progressed.emit(6, count, "Заполняю таблицу по трамвайным путям")
-        table = doc.tables[6]
+        self.progressed.emit(8, count, "Заполняю таблицу по трамвайным путям")
+        table = doc.tables[8]
         self.fill_table_trail_defects(table)
 
-        self.progressed.emit(7, count, "Заполняю таблицу по ровности")
-        table = doc.tables[7]
+        self.progressed.emit(9, count, "Заполняю таблицу по ровности")
+        table = doc.tables[9]
         self.fill_smooth_data(table)
 
         self.progressed.emit(count, count, "Готово")

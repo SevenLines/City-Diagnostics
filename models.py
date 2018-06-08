@@ -97,7 +97,10 @@ class Attribute(Base):
 
     @classmethod
     def query_by_road(self, session, road_id):
-        qs = session.query(Attribute).join(High).join(Way).filter(Way.road_id == road_id)
+        qs = session.query(Attribute)\
+            .join(High, High.id == Attribute.high_id)\
+            .join(Way, Way.id == High.way_id)\
+            .filter(Way.road_id == road_id)
         return qs
 
     @property

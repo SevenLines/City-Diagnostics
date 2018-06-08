@@ -2,7 +2,7 @@ import os
 import re
 import shutil
 
-PATH = "e:\\2018_City\\05\\"
+PATH = 'g:\\_ROADS\\IRKUTSK2018\\12\\'
 
 regexp = re.compile(r"(.*?)_(zaezd.*)")
 files = os.listdir(PATH)
