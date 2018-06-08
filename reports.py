@@ -328,7 +328,7 @@ class DiagnosticsReport(QObject):
                 da = max([p.a for p in points]) - min([p.a for p in points])
                 dy = r.L2 - r.L1
                 if da > dy:
-                    name = "Попереченые трещины"
+                    name = "Поперечные трещины"
                 else:
                     name = "Продольные трещины"
 
@@ -345,7 +345,7 @@ class DiagnosticsReport(QObject):
                 rng.add_subrange(r[0], r[1] if r[1] > r[0] else r[0] + 1, 1)
             longitudinal_cracks_ranges = [i for i in rng.ranges if i[2]]
 
-        transverse_cracks = defects.get("Попереченые трещины", [])
+        transverse_cracks = defects.get("Поперечные трещины", [])
         transverse_cracks_ranges = []
         if transverse_cracks:
             transverse_cracks_ranges = self.join_ranges(
@@ -364,7 +364,7 @@ class DiagnosticsReport(QObject):
         koleynost = self.get_koleynost()
 
         return {
-            'Попереченые трещины': transverse_cracks_ranges,
+            'Поперечные трещины': transverse_cracks_ranges,
             'Продольные трещины': longitudinal_cracks_ranges,
             'Выбоины': potholes_ranges,
             'Колейность': koleynost,
@@ -408,7 +408,7 @@ class DiagnosticsReport(QObject):
                     })
 
             defect_cell_offset = 4
-            for item in defects['Попереченые трещины'] or []:
+            for item in defects['Поперечные трещины'] or []:
                 if offset <= item[0] <= offset + delta or offset <= item[1] <= offset + delta:
                     if item[2] == None:
                         cell_offset = 0
@@ -416,7 +416,7 @@ class DiagnosticsReport(QObject):
                         cell_offset = [40, 20, 10, 8, 6, 4, 3, 2].index(item[2]) + 1
 
                     row['defects'].append({
-                        'type': 'Попереченые трещины',
+                        'type': 'Поперечные трещины',
                         'short': "+",
                         'cell': defect_cell_offset + cell_offset,
                         'alone': item[2] is None,
@@ -433,7 +433,7 @@ class DiagnosticsReport(QObject):
                             3: 2.8,
                             2: 2.5,
                         }.get(item[2]),
-                        'description': "попереченые трещины, на расстоянии {}".format(
+                        'description': "поперечные трещины, на расстоянии {}".format(
                             {
                                 None: "более 40м",
                                 40: "20-40м",
@@ -447,8 +447,6 @@ class DiagnosticsReport(QObject):
                             }.get(item[2])
                         )
                     })
-
-
 
             defect_cell_offset = 16
             for item in defects['Сетка трещин'] or []:
@@ -726,15 +724,30 @@ ORDER BY 1
         info = self.get_road_type_and_category()
         ranges = self.get_width_data()
 
-        for start, end, value in ranges:
-            row = add_row(table, [
-                self.road.Name,
-                "{} - {}".format(get_km(int(start)), get_km(int(end))),
-                str(value),
-                "-",
-                "2",
-                info['category'],
-            ])
+        min_width = min([i[2] for i in ranges])
+        max_width = max([i[2] for i in ranges])
+
+        start = min([i[0] for i in ranges])
+        end = max([i[1] for i in ranges])
+
+        add_row(table, [
+            self.road.Name,
+            "{} - {}".format(get_km(int(start)), get_km(int(end))),
+            "{} - {}".format(min_width, max_width),
+            "-",
+            "2",
+            info['category'],
+        ])
+
+        # for start, end, value in ranges:
+        #     row = add_row(table, [
+        #         self.road.Name,
+        #         "{} - {}".format(get_km(int(start)), get_km(int(end))),
+        #         str(value),
+        #         "-",
+        #         "2",
+        #         info['category'],
+        #     ])
 
     def get_smooth_data(self):
         if self.smoothnes:
