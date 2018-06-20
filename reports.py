@@ -68,7 +68,7 @@ class BarringReport(object):
     def __init__(self, session) -> None:
         self.session = session
 
-    def __call__(self, ID_Road, *args, **kwargs):
+    def __call__(self, ID_Road, _start, _end, *args, **kwargs):
         """
         010109 -- бортовой камень, ID_Param: 3935 == 1ГП то condition плохое
         020301	Криволинейный брус (Металическое)
@@ -120,23 +120,28 @@ class BarringReport(object):
 
         out = []
         for r in attributes:
-            range_ = "{} — {}".format(get_km(max(0, r.L1)), get_km(r.L2))
+            start = min(_end, max(0, r.L1))
+            end = min(_end, r.L2)
+            length = end - start
+
+            range_ = "{} — {}".format(get_km(start), get_km(end))
             type_ = r.name_attribute
             condition = "плохое" if r.value else "хорошее"
 
             points = Attribute.get_points(r.Image_Points, r.Image_Counts)
             position = "Слева" if points[0].a < 0 else 'Справа'
 
-            out.append({
-                "Участок": range_,
-                "Позиция": position,
-                "Тип": type_,
-                "condition": condition,
-                "length": r.L2 - max(0, r.L1),
-                'start': max(0, r.L1),
-                'end': r.L2,
-                'is_barrier': r.ID_Type_Attr != '010109'
-            })
+            if length:
+                out.append({
+                    "Участок": range_,
+                    "Позиция": position,
+                    "Тип": type_,
+                    "condition": condition,
+                    "length": length,
+                    'start': start,
+                    'end': r.L2,
+                    'is_barrier': r.ID_Type_Attr != '010109'
+                })
 
         return out
 
@@ -540,7 +545,7 @@ class DiagnosticsReport(QObject):
             return self.barrier_data
 
         report = BarringReport(self.session)
-        data = report(self.road.id)
+        data = report(self.road.id, self.start, self.end)
         self.barrier_data = data
 
         return self.barrier_data
