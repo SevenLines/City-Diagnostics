@@ -120,7 +120,7 @@ class BarringReport(object):
 
         out = []
         for r in attributes:
-            range_ = "{} - {}".format(get_km(max(0, r.L1)), get_km(r.L2))
+            range_ = "{} — {}".format(get_km(max(0, r.L1)), get_km(r.L2))
             type_ = r.name_attribute
             condition = "плохое" if r.value else "хорошее"
 
@@ -322,6 +322,7 @@ class DiagnosticsReport(QObject):
 
         defects = {}
         LMax = 0
+        attributes = list(attributes)
         for r in attributes:
             name = r.name_attribute
             if r.ID_Type_Attr == '01020101':
@@ -390,6 +391,7 @@ class DiagnosticsReport(QObject):
         for offset in ranges:
             row = {
                 "address": get_km(offset),
+                "pos": offset,
                 "length": self.end - offset if offset + delta > self.end else delta,
                 "defects": [],
                 "score": 0,
@@ -733,22 +735,12 @@ ORDER BY 1
 
         add_row(table, [
             self.road.Name,
-            "{} - {}".format(get_km(int(start)), get_km(int(end))),
-            "{} - {}".format(min_width, max_width),
-            "-",
+            "{} — {}".format(get_km(int(start)), get_km(int(end))),
+            "{} — {}".format(min_width, max_width),
+            "—",
             "2",
             info['category'],
         ])
-
-        # for start, end, value in ranges:
-        #     row = add_row(table, [
-        #         self.road.Name,
-        #         "{} - {}".format(get_km(int(start)), get_km(int(end))),
-        #         str(value),
-        #         "-",
-        #         "2",
-        #         info['category'],
-        #     ])
 
     def get_smooth_data(self):
         if self.smoothnes:
@@ -798,8 +790,9 @@ ORDER BY 1
             '4': 6.5,
         }.get(info['category'], 5.5)
 
+
         for a in attributes:
-            if a.pos < self.end:
+            if self.start <= a.pos <= self.end:
                 self.smoothnes.append({
                     'backward': round(a.backward, 2),
                     'forward': round(a.forward, 2),
@@ -865,12 +858,19 @@ ORDER BY 1
     def fill_not_normativ_works(self, table):
         defects = self.get_defects()
         smoothnes = self.get_smooth_data()
+        smoothnes = {i['pos']: i for i in smoothnes}
 
+        previous_smooth = {}
         for idx, data_row in enumerate(defects):
-            smooth = smoothnes[idx]
-            if smooth['is_bad']:
+            smooth = smoothnes.get(data_row['pos'])
+            if smooth:
+                previous_smooth = smooth
+            else:
+                smooth = previous_smooth
+
+            if smooth and smooth['is_bad']:
                 row = add_row(table, [
-                    "{} — {}".format(get_km(smooth['pos']), get_km(smooth['pos'] + smooth['delta'])),
+                    "{} — {}".format(get_km(data_row['pos']), get_km(data_row['pos'] + data_row['length'])),
                     'Капитальный ремонт участка улицы' if data_row['score'] < 3 else 'Ремонт покрытия проезжей части'
                 ])
 
@@ -901,7 +901,7 @@ ORDER BY 1
 
         count = 10
 
-        self.fill_total_paragpraph(doc.paragraphs[1], doc.paragraphs[2])
+        self.fill_total_paragpraph(doc.paragraphs[3], doc.paragraphs[4])
 
         self.progressed.emit(0, count, "Заполняю не отвечающих нормативным требованиям таблицу")
         table = doc.tables[0]

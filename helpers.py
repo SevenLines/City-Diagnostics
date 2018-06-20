@@ -59,7 +59,7 @@ class Range(object):
         start = max(start, self.min)
         end = max(start, min(end, self.max))
         done = False
-        if start > end:
+        if start >= end:
             return
 
         for idx, r in enumerate(self._ranges):
