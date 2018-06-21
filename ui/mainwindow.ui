@@ -15,9 +15,6 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QGridLayout" name="gridLayout">
-    <item row="0" column="0">
-     <widget class="QListView" name="lstMessages"/>
-    </item>
     <item row="0" column="1">
      <layout class="QVBoxLayout" name="verticalLayout">
       <item>
@@ -68,6 +65,9 @@
        </widget>
       </item>
      </layout>
+    </item>
+    <item row="0" column="0">
+     <widget class="QTextEdit" name="txtLog"/>
     </item>
    </layout>
   </widget>

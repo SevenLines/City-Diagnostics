@@ -111,9 +111,6 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.roads_model = RoadsModel()
         self.lstRoads.setModel(self.roads_model)
 
-        self.log_model = LogModel()
-        self.lstMessages.setModel(self.log_model)
-
         movie = QtGui.QMovie(":images/loading.gif")
         movie.start()
         self.lblLoading.setVisible(False)
@@ -121,7 +118,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
 
     def onGenerate(self):
         roads = self.lstRoads.selectedIndexes()
-        self.log_model.clear()
+        self.txtLog.clear()
         path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
         if path:
             self.progressMain.setMaximum(len(roads))
@@ -144,7 +141,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
                 self.lblLoading.setVisible(False)
                 self.btnGenerate.setDisabled(False)
 
-        self.log_model.log(message, level)
+        self.txtLog.append(message)
 
     @QtCore.pyqtSlot(object)
     def onReportFinished(self, report):
@@ -152,7 +149,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         if self.progressMain.value() == self.progressMain.maximum():
             self.lblLoading.setVisible(False)
             self.btnGenerate.setDisabled(False)
-        self.log_model.log("\"{}\" готова".format(report.road.Name), 1)
+        self.txtLog.append("\"{}\" готова".format(report.road.Name))
 
 
 if __name__ == '__main__':
