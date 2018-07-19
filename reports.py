@@ -46,7 +46,13 @@ class BadWellsReport(object):
             .filter(Attribute.ID_Type_Attr.in_(["0602", "0602"])) \
             .filter(Params.id.in_(["3939", "3937"])) \
             .order_by(Attribute.L1, Attribute.L2) \
-            .with_entities(Attribute.L1, Attribute.ID_Type_Attr, Params.value.label("defect"))
+            .with_entities(
+            Attribute.L1,
+            Attribute.ID_Type_Attr,
+            Attribute.Image_Points,
+            Attribute.Image_Counts,
+            Params.value.label("defect")
+        )
 
         out = []
         for r in query:
@@ -59,7 +65,7 @@ class BadWellsReport(object):
 
             defects = ", ".join([DEFECTS.get(r.ID_Type_Attr)[int(d.strip())] for d in re.split("[.,]", r.defect)])
 
-            out.append((type, position, defects))
+            out.append((type, position, defects, r.Image_Points, r.Image_Counts))
 
         return out
 
@@ -140,6 +146,7 @@ class BarringReport(object):
                     "length": length,
                     'start': start,
                     'end': r.L2,
+                    'points': [(p.x, p.y) for p in points],
                     'is_barrier': r.ID_Type_Attr != '010109'
                 })
 
@@ -155,6 +162,9 @@ class TrailReport(object):
         info['title'] = key
         info['L1'] = items[0].L1
         info['L2'] = items[0].L2
+        points = Attribute.get_points(items[0].Image_Points, items[0].Image_Counts)
+        info['x'] = points[0].x
+        info['y'] = points[0].y
         return info
 
     def __call__(self, ID_Road, *args, **kwargs):
@@ -164,6 +174,8 @@ class TrailReport(object):
             Attribute.L1,
             Attribute.L2,
             Attribute.id,
+            Attribute.Image_Counts,
+            Attribute.Image_Points,
             Params.value,
             Params.id.label('param_id')
         )
@@ -175,6 +187,8 @@ class TrailReport(object):
         for i in data:
             if i.get(3204):
                 out.append({
+                    "x": i['x'],
+                    "y": i['y'],
                     "start": i['L1'],
                     "end": i['L2'],
                     "type": i.get(3205).value if 3205 in i else '',
@@ -951,3 +965,67 @@ ORDER BY 1
         self.progressed.emit(count, count, "Готово")
 
         return doc
+
+    def create_json(self):
+        out = {
+            "bad_wheels":[],
+            'quality': [],
+            'barrier': [],
+            'trails': [],
+        }
+
+        report = BadWellsReport(self.session)
+        data = report(self.road.id)
+        for row_item in data:
+            points = Attribute.get_points(row_item[3], row_item[4])
+            out['bad_wheels'].append({
+                "x": points[0].x,
+                "y": points[0].y,
+                "l": points[0].l,
+                "type": row_item[0],
+                "position": row_item[1],
+                "defects": row_item[2],
+            })
+
+        # out['barrier'] = self.get_barrier_data()
+
+        report = TrailReport(self.session)
+        data = report(self.road.id)
+        for item in data:
+            out['trails'].append({
+                'type': item['type'],
+                'x': item['x'],
+                'y': item['y'],
+                'start': item['start'],
+                'end': item['end'],
+                'defect': item['defect'],
+            })
+
+        report = BarringReport(self.session)
+        for b in report(self.road.id, self.start, self.end):
+            out['barrier'].append({
+                "range": b['Участок'],
+                "position": b['Позиция'],
+                "type": b['Тип'],
+                "condition": b['condition'],
+                "length": b['length'],
+                'start': b['start'],
+                'end': b['end'],
+                'points': b['points'],
+                'is_barrier': b['is_barrier'],
+            })
+
+        defects = self.get_defects()
+        for idx, data_row in enumerate(defects):
+            row = out['quality'].append({
+                'pos': data_row['pos'],
+                'length': data_row['length'],
+                'defects': ", ".join(list({i['description'] for i in data_row['defects'] if not i['alone']})),
+                'alonedefects': ''", ".join(list({"{} ({})".format(
+                    i['description'],
+                    get_km(int(i['address']))
+                ) for i in data_row['defects'] if i['alone']})),
+                'score': data_row['score']
+            })
+
+        return out

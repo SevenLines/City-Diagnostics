@@ -39,6 +39,13 @@ class Ui_MainWindow(object):
         self.progressMain.setTextDirection(QtWidgets.QProgressBar.TopToBottom)
         self.progressMain.setObjectName("progressMain")
         self.horizontalLayout.addWidget(self.progressMain)
+        self.comboBox = QtWidgets.QComboBox(self.centralwidget)
+        self.comboBox.setMinimumSize(QtCore.QSize(150, 0))
+        self.comboBox.setObjectName("comboBox")
+        self.comboBox.addItem("")
+        self.comboBox.addItem("")
+        self.comboBox.addItem("")
+        self.horizontalLayout.addWidget(self.comboBox)
         self.btnGenerate = QtWidgets.QPushButton(self.centralwidget)
         self.btnGenerate.setObjectName("btnGenerate")
         self.horizontalLayout.addWidget(self.btnGenerate)
@@ -55,5 +62,8 @@ class Ui_MainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "Диагностика отчеты"))
         self.progressMain.setFormat(_translate("MainWindow", "%p%"))
-        self.btnGenerate.setText(_translate("MainWindow", "Сгенерировать"))
+        self.comboBox.setItemText(0, _translate("MainWindow", "Сгенерировать docx (диагностика)"))
+        self.comboBox.setItemText(1, _translate("MainWindow", "Сгенерировать карты (*.png)"))
+        self.comboBox.setItemText(2, _translate("MainWindow", "Сгенерировать json"))
+        self.btnGenerate.setText(_translate("MainWindow", "Запуск"))
 

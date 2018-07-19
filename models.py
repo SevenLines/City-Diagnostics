@@ -4,7 +4,7 @@ from pprint import pprint
 
 import sqlalchemy as sa
 import struct
-from sqlalchemy import Column, Integer
+from sqlalchemy import Column, Integer, Float
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -47,8 +47,27 @@ class Road(Base):
     id = Column("ID_Road", Integer, primary_key=True)
     Name = Column(sa.String)
 
-    def get_length(self, session):
+    def get_main_axe(self, session):
         road_axe = Attribute.query_by_road(session, self.id).filter(Attribute.ID_Type_Attr == "0303").first()
+        return road_axe
+
+    def get_main_axe_coordinates(self, session):
+        road_axe = self.get_main_axe(session)
+        survey_item = session.query(SurveyItem)\
+            .join(High, SurveyItem.high_id == High.id)\
+            .join(Way, Way.road_id == High.way_id)\
+            .join(Road, Road.id == Way.road_id)\
+            .filter(Road.id == self.id).first()
+        points = []
+        for p in road_axe.points:
+            points.append({
+                'lat': math.degrees(survey_item.latitude) + p.y * -8.986642677244117e-06,
+                'lng': math.degrees(survey_item.longitude) + p.x * -1.4655401709054041e-05,
+            })
+        return points
+
+    def get_length(self, session):
+        road_axe = self.get_main_axe(session)
         if road_axe:
             return (0, road_axe.L2 - road_axe.L1)
         return (0, 0)
@@ -72,6 +91,15 @@ class Params(Base):
     attribute_id = Column("ID_Attribute", sa.Integer, sa.ForeignKey("Attribute.ID_Attribute"))
     value = Column("ValueParam", sa.String)
     list_id = Column("ID_List", sa.Integer)
+
+
+class SurveyItem(Base):
+    __tablename__ = "Survey_Item"
+    id = Column("ID_Survey_Item", Integer, primary_key=True)
+    high_id = Column("ID_High", Integer, sa.ForeignKey("High.ID_High"))
+    latitude = Column("latitude", Float)
+    longitude = Column("longitude", Float)
+    height = Column("height", Float)
 
 
 class Attribute(Base):

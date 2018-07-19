@@ -58,9 +58,34 @@
        </widget>
       </item>
       <item>
+       <widget class="QComboBox" name="comboBox">
+        <property name="minimumSize">
+         <size>
+          <width>150</width>
+          <height>0</height>
+         </size>
+        </property>
+        <item>
+         <property name="text">
+          <string>Сгенерировать docx (диагностика)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Сгенерировать карты (*.png)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Сгенерировать json</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
        <widget class="QPushButton" name="btnGenerate">
         <property name="text">
-         <string>Сгенерировать</string>
+         <string>Запуск</string>
         </property>
        </widget>
       </item>
