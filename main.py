@@ -11,7 +11,7 @@ import mercantile
 
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QAbstractListModel, QModelIndex, Qt, QRunnable, QObject
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog
+from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog
 
 from db import session, Session
 from models import Road
@@ -104,10 +104,11 @@ class ReportWorker(QRunnable):
 
 
 class MapImageWorker(QRunnable):
-    def __init__(self, road: Road, save_path: str, *args, **kwargs) -> None:
+    def __init__(self, road: Road, save_path: str, zoom:int, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.road = road
         self.save_path = save_path
+        self.zoom = zoom
         self.signals = ReportWorkerSignals(self.road)
         self.session = Session()
 
@@ -119,7 +120,7 @@ class MapImageWorker(QRunnable):
             east = max(p['lng'] for p in points)
             south = min(p['lat'] for p in points)
             north = max(p['lat'] for p in points)
-            img = geo2image.GeoImage(west, south, east, north, 15, pool_workers=4)
+            img = geo2image.GeoImage(west, south, east, north, self.zoom, pool_workers=4)
             img.update()
 
             with img.cairo_surface() as surface:
@@ -208,6 +209,9 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     def generate_png(self):
         roads = self.lstRoads.selectedIndexes()
         self.txtLog.clear()
+        zoom, cancel = QInputDialog.getInt(self, "Введите желаемый зум для карты", "Зум карты", 11)
+        if not cancel:
+            return
         path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
         if path:
             self.progressMain.setMaximum(len(roads))
@@ -216,7 +220,11 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.lblLoading.setVisible(True)
             for r in roads:
                 road = self.roads_model.get_road(r.row())
-                worker = MapImageWorker(road, os.path.join(path, "{}.png".format(road.Name[:100].replace("\"", "").replace("/", "-"))))
+                worker = MapImageWorker(
+                    road,
+                    os.path.join(path, "{}.png".format(road.Name[:100].replace("\"", "").replace("/", "-"))),
+                    zoom=zoom
+                )
                 worker.signals.logged.connect(self.onLogged)
                 worker.signals.finished.connect(self.onReportFinished)
                 self.workers.append(worker)
