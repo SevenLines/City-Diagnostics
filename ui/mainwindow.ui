@@ -72,6 +72,11 @@
         </item>
         <item>
          <property name="text">
+          <string>Сгенерировать docx (ровность)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
           <string>Сгенерировать карты (*.png)</string>
          </property>
         </item>

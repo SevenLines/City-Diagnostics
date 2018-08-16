@@ -18,6 +18,113 @@ def get_km(value):
     return "{}+{:03}".format(value // 1000, value % 1000)
 
 
+class SmoothMixin(object):
+    def __init__(self) -> None:
+        super().__init__()
+        self.smoothnes = None
+        self.info = None
+
+    def get_road_type_and_category(self):
+        if self.info:
+            return self.info
+        attributes = Attribute.query_by_road(self.session, self.road.id).filter(
+            Attribute.ID_Type_Attr.in_(['2320', '2306'])  # Тип покрытия, Категория
+        ).join(Params, Params.attribute_id == Attribute.id).with_entities(
+            Attribute.ID_Type_Attr,
+            Params.value
+        )
+
+        attributes = list(attributes)
+
+        attributes = {
+            a.ID_Type_Attr: a.value for a in attributes
+        }
+
+        self.info = {
+            'category': attributes.get('2306', '???категория'),
+            'type': attributes.get('2320', '???покрытие'),
+        }
+
+        return self.info
+
+    def get_smooth_data(self):
+        if self.smoothnes:
+           return self.smoothnes
+        self.smoothnes = []
+        column = literal_column("L1 / 100 * 100")
+
+        def get_query(direction):
+            return self.session.query(Attribute).filter(
+                Attribute.ID_Type_Attr == 2310,
+                Attribute.id.in_(
+                    Attribute.query_by_road(self.session, self.road.id)
+                        .join(Params)
+                        .filter(Params.id == '231')
+                        .filter(Params.value == direction)
+                        .with_entities(Attribute.id)
+                )
+            ).join(Params).filter(Params.id == '233')
+
+        forward = get_query("Прямое").with_entities(
+            column.label('pos'),
+            literal_column("Avg(Cast(ValueParam as float))").label('forward'),
+            literal_column('0').label('backward'),
+        ).group_by(column)
+
+        backward = get_query("Обратное").with_entities(
+            column,
+            literal_column("0"),
+            literal_column("Avg(Cast(ValueParam as float))"),
+        ).group_by(column)
+
+        qs = forward.union(backward).subquery('t')
+
+        attributes = self.session.query(
+            qs.c.pos.label('pos'),
+            case([(func.max(qs.c.forward) > 0, func.max(qs.c.forward))], else_=func.max(qs.c.backward)).label('forward'),
+            case([(func.max(qs.c.backward) > 0, func.max(qs.c.backward)),], else_=func.max(qs.c.forward)).label('backward'),
+        ).group_by(qs.c.pos)
+
+        info = self.get_road_type_and_category()
+        max_iri = {
+            '1': 4,
+            '1В': 4.5,
+            '1B': 4.5,
+            '2': 4.5,
+            '3': 5.5,
+            '4': 6.5,
+        }.get(info['category'], 5.5)
+
+        for a in attributes:
+            if self.start <= a.pos <= self.end:
+                self.smoothnes.append({
+                    'backward': round(a.backward, 2),
+                    'forward': round(a.forward, 2),
+                    'delta': self.end - a.pos if a.pos + self.delta > self.end else self.delta,
+                    'pos': a.pos,
+                    'is_bad': max(a.backward, a.forward) > max_iri
+                })
+
+        return self.smoothnes
+
+    def fill_smooth_data(self, table):
+        table.rows[0].cells[0].text = self.road.Name
+        table.rows[1].cells[0].text = "«Дата»: {:%d.%m.%Y}".format(datetime.now())
+
+        smoothnes = self.get_smooth_data()
+        info = self.get_road_type_and_category()
+
+        for a in smoothnes:
+            row = add_row(table, [
+                str(a['backward']),
+                str(a['forward']),
+                "{}".format(a['delta']),
+                get_km(a['pos']),
+                info['category'],
+                info['type'],
+            ])
+
+
 class BadWellsReport(object):
     def __init__(self, session) -> None:
         self.session = session
@@ -126,9 +233,12 @@ class BarringReport(object):
 
         out = []
         for r in attributes:
-            start = min(_end, max(0, r.L1))
-            end = min(_end, r.L2)
+            start = max(_start, min(_end, max(0, r.L1)))
+            end = max(_start, min(_end, r.L2))
             length = end - start
+
+            if length == 0:
+                continue
 
             range_ = "{} — {}".format(get_km(start), get_km(end))
             type_ = r.name_attribute
@@ -203,7 +313,7 @@ class TrailReport(object):
         return out
 
 
-class DiagnosticsReport(QObject):
+class DiagnosticsReport(SmoothMixin, QObject):
     progressed = QtCore.pyqtSignal(int, int, str)
 
     def __init__(self, road_id, *args, **kwargs) -> None:
@@ -214,7 +324,6 @@ class DiagnosticsReport(QObject):
         self.delta = 100
         self.road = self.session.query(Road).get(road_id)
         self.info = None
-        self.smoothnes = None
         self.start, self.end = self.road.get_length(self.session)
 
     def close(self):
@@ -395,7 +504,7 @@ class DiagnosticsReport(QObject):
 
     def get_range(self):
         delta = self.delta
-        ranges = range(0, self.end + 1, delta)
+        ranges = range(self.start, self.end + 1, delta)
         return ranges, delta
 
     def get_defects(self):
@@ -761,107 +870,6 @@ ORDER BY 1
             info['category'],
         ])
 
-    def get_smooth_data(self):
-        if self.smoothnes:
-           return self.smoothnes
-        self.smoothnes = []
-        column = literal_column("L1 / 100 * 100")
-
-        def get_query(direction):
-            return self.session.query(Attribute).filter(
-                Attribute.ID_Type_Attr == 2310,
-                Attribute.id.in_(
-                    Attribute.query_by_road(self.session, self.road.id)
-                        .join(Params)
-                        .filter(Params.id == '231')
-                        .filter(Params.value == direction)
-                        .with_entities(Attribute.id)
-                )
-            ).join(Params).filter(Params.id == '233')
-
-        forward = get_query("Прямое").with_entities(
-            column.label('pos'),
-            literal_column("Avg(Cast(ValueParam as float))").label('forward'),
-            literal_column('0').label('backward'),
-        ).group_by(column)
-
-        backward = get_query("Обратное").with_entities(
-            column,
-            literal_column("0"),
-            literal_column("Avg(Cast(ValueParam as float))"),
-        ).group_by(column)
-
-        qs = forward.union(backward).subquery('t')
-
-        attributes = self.session.query(
-            qs.c.pos.label('pos'),
-            case([(func.max(qs.c.forward) > 0, func.max(qs.c.forward))], else_=func.max(qs.c.backward)).label('forward'),
-            case([(func.max(qs.c.backward) > 0, func.max(qs.c.backward)),], else_=func.max(qs.c.forward)).label('backward'),
-        ).group_by(qs.c.pos)
-
-        info = self.get_road_type_and_category()
-        max_iri = {
-            '1': 4,
-            '1В': 4.5,
-            '1B': 4.5,
-            '2': 4.5,
-            '3': 5.5,
-            '4': 6.5,
-        }.get(info['category'], 5.5)
-
-
-        for a in attributes:
-            if self.start <= a.pos <= self.end:
-                self.smoothnes.append({
-                    'backward': round(a.backward, 2),
-                    'forward': round(a.forward, 2),
-                    'delta': self.end - a.pos if a.pos + self.delta > self.end else self.delta,
-                    'pos': a.pos,
-                    'is_bad': max(a.backward, a.forward) > max_iri
-                })
-
-        return self.smoothnes
-
-    def fill_smooth_data(self, table):
-        table.rows[0].cells[0].text = self.road.Name
-        table.rows[1].cells[0].text = "«Дата»: {:%d.%m.%Y}".format(datetime.now())
-
-        smoothnes = self.get_smooth_data()
-        info = self.get_road_type_and_category()
-
-        for a in smoothnes:
-            row = add_row(table, [
-                str(a['backward']),
-                str(a['forward']),
-                "{}".format(a['delta']),
-                get_km(a['pos']),
-                info['category'],
-                info['type'],
-            ])
-
-    def get_road_type_and_category(self):
-        if self.info:
-            return self.info
-        attributes = Attribute.query_by_road(self.session, self.road.id).filter(
-            Attribute.ID_Type_Attr.in_(['2320', '2306'])  # Тип покрытия, Категория
-        ).join(Params, Params.attribute_id == Attribute.id).with_entities(
-            Attribute.ID_Type_Attr,
-            Params.value
-        )
-
-        attributes = list(attributes)
-
-        attributes = {
-            a.ID_Type_Attr: a.value for a in attributes
-        }
-
-        self.info = {
-            'category': attributes.get('2306', '???категория'),
-            'type': attributes.get('2320', '???покрытие'),
-        }
-
-        return self.info
-
     def fill_not_normativ(self, table):
         smoothnes = self.get_smooth_data()
 
@@ -914,6 +922,25 @@ ORDER BY 1
 
         paragraph1.text = text
         paragraph2.text = text2
+
+    def create_smooth_only(self):
+        doc = docx.Document("templates/smooth.docx")
+        self.progressed.emit(0, 1, "Заполняю таблицу по ровности")
+        table = doc.tables[0]
+
+        smoothnes = self.get_smooth_data()
+
+        for a in smoothnes:
+            row = add_row(table, [
+                get_km(a['pos']),
+                get_km(a['pos'] + a['delta']),
+                str(a['forward']),
+                str(a['backward']),
+            ])
+
+        self.progressed.emit(1, 1, "Готово")
+
+        return doc
 
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")

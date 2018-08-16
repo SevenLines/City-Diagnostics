@@ -45,6 +45,7 @@ class Ui_MainWindow(object):
         self.comboBox.addItem("")
         self.comboBox.addItem("")
         self.comboBox.addItem("")
+        self.comboBox.addItem("")
         self.horizontalLayout.addWidget(self.comboBox)
         self.btnGenerate = QtWidgets.QPushButton(self.centralwidget)
         self.btnGenerate.setObjectName("btnGenerate")
@@ -63,7 +64,8 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(_translate("MainWindow", "Диагностика отчеты"))
         self.progressMain.setFormat(_translate("MainWindow", "%p%"))
         self.comboBox.setItemText(0, _translate("MainWindow", "Сгенерировать docx (диагностика)"))
-        self.comboBox.setItemText(1, _translate("MainWindow", "Сгенерировать карты (*.png)"))
-        self.comboBox.setItemText(2, _translate("MainWindow", "Сгенерировать json"))
+        self.comboBox.setItemText(1, _translate("MainWindow", "Сгенерировать docx (ровность)"))
+        self.comboBox.setItemText(2, _translate("MainWindow", "Сгенерировать карты (*.png)"))
+        self.comboBox.setItemText(3, _translate("MainWindow", "Сгенерировать json"))
         self.btnGenerate.setText(_translate("MainWindow", "Запуск"))
 

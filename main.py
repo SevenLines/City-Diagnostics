@@ -76,11 +76,12 @@ class ReportWorkerSignals(QObject):
 
 
 class ReportWorker(QRunnable):
-    def __init__(self, road: Road, save_path: str, as_json=False, *args, **kwargs) -> None:
+    def __init__(self, road: Road, save_path: str, as_json=False, smooth_only=False, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.road = road
         self.save_path = save_path
         self.as_json = as_json
+        self.smooth_only = smooth_only
         self.signals = ReportWorkerSignals(self.road)
 
     def run(self):
@@ -94,6 +95,9 @@ class ReportWorker(QRunnable):
                     json.dump({
                         self.road.id: data
                     }, f)
+            elif self.smooth_only:
+                doc = report.create_smooth_only()
+                doc.save(self.save_path)
             else:
                 doc = report.create()
                 doc.save(self.save_path)
@@ -152,6 +156,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     thread = None
     roads_model = None
     path = "./out/"
+    zoom = 11
     workers = []
 
     def __init__(self, *args, **kwargs) -> None:
@@ -175,6 +180,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.txtLog.clear()
         path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
         if path:
+            self.path = path
             self.progressMain.setMaximum(len(roads))
             self.progressMain.setValue(0)
             self.btnGenerate.setDisabled(True)
@@ -188,11 +194,31 @@ class MainWindow(Ui_MainWindow, QMainWindow):
                 self.workers.append(worker)
                 self.pool.start(worker)
 
+    def generate_docx_smooth(self):
+        roads = self.lstRoads.selectedIndexes()
+        self.txtLog.clear()
+        path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
+        if path:
+            self.path = path
+            self.progressMain.setMaximum(len(roads))
+            self.progressMain.setValue(0)
+            self.btnGenerate.setDisabled(True)
+            self.lblLoading.setVisible(True)
+            for r in roads:
+                road = self.roads_model.get_road(r.row())
+                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), smooth_only=True)
+                worker.signals.logged.connect(self.onLogged)
+                worker.signals.finished.connect(self.onReportFinished)
+                self.workers.append(worker)
+                self.pool.start(worker)
+
     def generate_docx(self):
         roads = self.lstRoads.selectedIndexes()
         self.txtLog.clear()
         path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
         if path:
+            self.path = path
             self.progressMain.setMaximum(len(roads))
             self.progressMain.setValue(0)
             self.btnGenerate.setDisabled(True)
@@ -209,11 +235,14 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     def generate_png(self):
         roads = self.lstRoads.selectedIndexes()
         self.txtLog.clear()
-        zoom, cancel = QInputDialog.getInt(self, "Введите желаемый зум для карты", "Зум карты", 11)
+        zoom, cancel = QInputDialog.getInt(self, "Введите желаемый зум для карты", "Зум карты", self.zoom)
         if not cancel:
             return
+        self.zoom = zoom
+
         path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
         if path:
+            self.path = path
             self.progressMain.setMaximum(len(roads))
             self.progressMain.setValue(0)
             self.btnGenerate.setDisabled(True)
@@ -233,6 +262,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     def onGenerate(self):
         if self.comboBox.currentText() == 'Сгенерировать docx (диагностика)':
             self.generate_docx()
+        elif self.comboBox.currentText() == 'Сгенерировать docx (ровность)':
+            self.generate_docx_smooth()
         elif self.comboBox.currentText() == 'Сгенерировать json':
             self.generate_json()
         elif self.comboBox.currentText() == 'Сгенерировать карты (*.png)':
