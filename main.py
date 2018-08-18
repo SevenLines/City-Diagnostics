@@ -83,11 +83,13 @@ class ReportWorker(QRunnable):
                  quality_only=False,
                  smooth_only=False,
                  correspondence_only=False,
+                 default_category="4",
                  *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.road = road
         self.save_path = save_path
         self.as_json = as_json
+        self.default_category = default_category
         self.smooth_only = smooth_only
         self.correspondence_only = correspondence_only
         self.quality_only = quality_only
@@ -96,7 +98,7 @@ class ReportWorker(QRunnable):
     def run(self):
         try:
             self.signals.logged.emit("Обработка {}".format(self.road.Name), LogModel.INFO)
-            report = DiagnosticsReport(self.road.id)
+            report = DiagnosticsReport(self.road.id, default_category=self.default_category)
             report.progressed.connect(self.signals.onProgress)
             if self.as_json:
                 data = report.create_json()
@@ -174,6 +176,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     roads_model = None
     path = "./out/"
     zoom = 11
+    default_category = '4'
     workers = []
 
     def __init__(self, *args, **kwargs) -> None:
@@ -252,9 +255,17 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         return self._generate(docx_quality_road_processor)
 
     def generate_docx_conformity(self):
+        category, cancel = QInputDialog.getText(self, "Введите категорию по умолчанию", "Категория",
+                                                text=self.default_category)
+        if not cancel:
+            return
+        self.default_category = category
+
         def docx_quality_road_processor(road, path):
             return ReportWorker(road, os.path.join(path, "{}.docx".format(
-                    road.Name[:100].replace("\"", "").replace("/", "-"))), correspondence_only=True)
+                road.Name[:100].replace("\"", "").replace("/", "-"))),
+                                correspondence_only=True,
+                                default_category=self.default_category)
         return self._generate(docx_quality_road_processor)
 
     def onGenerate(self):

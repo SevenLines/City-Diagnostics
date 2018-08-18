@@ -19,9 +19,10 @@ def get_km(value):
 
 
 class SmoothMixin(object):
-    def __init__(self) -> None:
+    def __init__(self,  *args, **kwargs) -> None:
         super().__init__()
         self.smoothnes = None
+        self.default_category = kwargs.get('default_category', '4')
         self.info = None
 
     def get_road_type_and_category(self):
@@ -41,7 +42,7 @@ class SmoothMixin(object):
         }
 
         self.info = {
-            'category': attributes.get('2306', '???категория'),
+            'category': attributes.get('2306', self.default_category),
             'type': attributes.get('2320', '???покрытие'),
         }
 
@@ -93,6 +94,7 @@ class SmoothMixin(object):
             '2': 4.5,
             '3': 5.5,
             '4': 6.5,
+            '5': 8.0,
         }.get(info['category'], 5.5)
 
         for a in attributes:
@@ -986,7 +988,7 @@ ORDER BY 1
                 'не соответствует' if data_row['defects'] else '-'
             ])
 
-        elf.progressed.emit(1, 1, "Готово {}".format(self.road.Name))
+        self.progressed.emit(1, 1, "Готово {}".format(self.road.Name))
 
         return doc
 
