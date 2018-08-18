@@ -54,10 +54,7 @@ class Road(Base):
     def get_main_axe_coordinates(self, session):
         road_axe = self.get_main_axe(session)
         survey_item = session.query(SurveyItem)\
-            .join(High, SurveyItem.high_id == High.id)\
-            .join(Way, Way.road_id == High.way_id)\
-            .join(Road, Road.id == Way.road_id)\
-            .filter(Road.id == self.id).first()
+            .filter(SurveyItem.high_id == road_axe.high_id).first()
         points = []
         for p in road_axe.points:
             points.append({

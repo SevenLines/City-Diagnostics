@@ -5,6 +5,7 @@ import traceback
 import typing
 
 import cairo
+import docx
 import geo2image
 import math
 import mercantile
@@ -14,8 +15,9 @@ from PyQt5.QtCore import QAbstractListModel, QModelIndex, Qt, QRunnable, QObject
 from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog
 
 from db import session, Session
+from helpers import add_row
 from models import Road
-from reports import DiagnosticsReport
+from reports import DiagnosticsReport, get_km
 from ui.mainwindow import Ui_MainWindow
 
 
@@ -66,22 +68,29 @@ class ReportWorkerSignals(QObject):
     logged = QtCore.pyqtSignal(str, int)
     progressed = QtCore.pyqtSignal(int, int, str)
 
-    def __init__(self, road, *args, **kwargs) -> None:
+    def __init__(self, road=None, *args, **kwargs) -> None:
         super(ReportWorkerSignals, self).__init__(*args, **kwargs)
         self.road = road
 
     @QtCore.pyqtSlot(int, int, str)
     def onProgress(self, value, max, message):
-        self.progressed.emit(value, max, "{}: {}".format(self.road.Name, message))
+        self.progressed.emit(value, max, "{}: {}".format(self.road.Name if self.road else '', message))
 
 
 class ReportWorker(QRunnable):
-    def __init__(self, road: Road, save_path: str, as_json=False, smooth_only=False, *args, **kwargs) -> None:
+    def __init__(self, road: Road, save_path: str,
+                 as_json=False,
+                 quality_only=False,
+                 smooth_only=False,
+                 correspondence_only=False,
+                 *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.road = road
         self.save_path = save_path
         self.as_json = as_json
         self.smooth_only = smooth_only
+        self.correspondence_only = correspondence_only
+        self.quality_only = quality_only
         self.signals = ReportWorkerSignals(self.road)
 
     def run(self):
@@ -97,6 +106,12 @@ class ReportWorker(QRunnable):
                     }, f)
             elif self.smooth_only:
                 doc = report.create_smooth_only()
+                doc.save(self.save_path)
+            elif self.quality_only:
+                doc = report.create_quality_only()
+                doc.save(self.save_path)
+            elif self.correspondence_only:
+                doc = report.create_correspondence_only()
                 doc.save(self.save_path)
             else:
                 doc = report.create()
@@ -150,6 +165,8 @@ class MapImageWorker(QRunnable):
             self.signals.finished.emit(self)
         except Exception as ex:
             self.signals.logged.emit("{}:{}".format(self.road.Name, traceback.format_exc()), LogModel.ERROR)
+        finally:
+            self.session.close()
 
 
 class MainWindow(Ui_MainWindow, QMainWindow):
@@ -175,7 +192,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         self.lblLoading.setVisible(False)
         self.lblLoading.setMovie(movie)
 
-    def generate_json(self):
+    def _generate(self, road_processor):
         roads = self.lstRoads.selectedIndexes()
         self.txtLog.clear()
         path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
@@ -187,77 +204,58 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.lblLoading.setVisible(True)
             for r in roads:
                 road = self.roads_model.get_road(r.row())
-                worker = ReportWorker(road, os.path.join(path, "{}.json".format(
-                    road.Name[:100].replace("\"", "").replace("/", "-"))), as_json=True)
+                worker = road_processor(road, path)
                 worker.signals.logged.connect(self.onLogged)
                 worker.signals.finished.connect(self.onReportFinished)
                 self.workers.append(worker)
                 self.pool.start(worker)
+
+    def generate_json(self):
+        def json_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.json".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), as_json=True)
+
+        return self._generate(json_road_processor)
 
     def generate_docx_smooth(self):
-        roads = self.lstRoads.selectedIndexes()
-        self.txtLog.clear()
-        path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
-        if path:
-            self.path = path
-            self.progressMain.setMaximum(len(roads))
-            self.progressMain.setValue(0)
-            self.btnGenerate.setDisabled(True)
-            self.lblLoading.setVisible(True)
-            for r in roads:
-                road = self.roads_model.get_road(r.row())
-                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(
+        def docx_smooth_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
                     road.Name[:100].replace("\"", "").replace("/", "-"))), smooth_only=True)
-                worker.signals.logged.connect(self.onLogged)
-                worker.signals.finished.connect(self.onReportFinished)
-                self.workers.append(worker)
-                self.pool.start(worker)
+        return self._generate(docx_smooth_road_processor)
 
     def generate_docx(self):
-        roads = self.lstRoads.selectedIndexes()
-        self.txtLog.clear()
-        path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
-        if path:
-            self.path = path
-            self.progressMain.setMaximum(len(roads))
-            self.progressMain.setValue(0)
-            self.btnGenerate.setDisabled(True)
-            self.lblLoading.setVisible(True)
-            for r in roads:
-                road = self.roads_model.get_road(r.row())
-                worker = ReportWorker(road, os.path.join(path, "{}.docx".format(
+        def docx_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
                     road.Name[:100].replace("\"", "").replace("/", "-"))))
-                worker.signals.logged.connect(self.onLogged)
-                worker.signals.finished.connect(self.onReportFinished)
-                self.workers.append(worker)
-                self.pool.start(worker)
+
+        return self._generate(docx_road_processor)
 
     def generate_png(self):
-        roads = self.lstRoads.selectedIndexes()
-        self.txtLog.clear()
         zoom, cancel = QInputDialog.getInt(self, "Введите желаемый зум для карты", "Зум карты", self.zoom)
         if not cancel:
             return
         self.zoom = zoom
 
-        path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
-        if path:
-            self.path = path
-            self.progressMain.setMaximum(len(roads))
-            self.progressMain.setValue(0)
-            self.btnGenerate.setDisabled(True)
-            self.lblLoading.setVisible(True)
-            for r in roads:
-                road = self.roads_model.get_road(r.row())
-                worker = MapImageWorker(
+        def png_road_processor(road, path):
+            return MapImageWorker(
                     road,
                     os.path.join(path, "{}.png".format(road.Name[:100].replace("\"", "").replace("/", "-"))),
                     zoom=zoom
                 )
-                worker.signals.logged.connect(self.onLogged)
-                worker.signals.finished.connect(self.onReportFinished)
-                self.workers.append(worker)
-                self.pool.start(worker)
+
+        return self._generate(png_road_processor)
+
+    def generate_quality_report(self):
+        def docx_quality_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), quality_only=True)
+        return self._generate(docx_quality_road_processor)
+
+    def generate_docx_conformity(self):
+        def docx_quality_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), correspondence_only=True)
+        return self._generate(docx_quality_road_processor)
 
     def onGenerate(self):
         if self.comboBox.currentText() == 'Сгенерировать docx (диагностика)':
@@ -266,6 +264,10 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.generate_docx_smooth()
         elif self.comboBox.currentText() == 'Сгенерировать json':
             self.generate_json()
+        elif self.comboBox.currentText() == 'Сгенерировать docx (состояние участков в баллах)':
+            self.generate_quality_report()
+        elif self.comboBox.currentText() == 'Сгенерировать docx (соответствие состояния)':
+            self.generate_docx_conformity()
         elif self.comboBox.currentText() == 'Сгенерировать карты (*.png)':
             self.generate_png()
 
@@ -285,7 +287,10 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         if self.progressMain.value() == self.progressMain.maximum():
             self.lblLoading.setVisible(False)
             self.btnGenerate.setDisabled(False)
-        self.txtLog.append("\"{}\" готова".format(report.road.Name))
+        if report and hasattr(report, 'road'):
+            self.txtLog.append("\"{}\" готова".format(report.road.Name))
+        else:
+            self.txtLog.append("Отчет готов")
 
 
 if __name__ == '__main__':

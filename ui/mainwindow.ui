@@ -77,6 +77,16 @@
         </item>
         <item>
          <property name="text">
+          <string>Сгенерировать docx (состояние участков в баллах)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Сгенерировать docx (соответствие состояния)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
           <string>Сгенерировать карты (*.png)</string>
          </property>
         </item>

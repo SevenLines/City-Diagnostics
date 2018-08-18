@@ -942,6 +942,54 @@ ORDER BY 1
 
         return doc
 
+    def create_quality_only(self):
+        doc = docx.Document("templates/quality.docx")
+        self.progressed.emit(0, 1, "Заполняю таблицу по ровности")
+
+        table = doc.tables[0]
+        defects = self.get_defects()
+
+        for idx, data_row in enumerate(defects):
+            row = add_row(table, [
+                get_km(data_row['pos']),
+                get_km(data_row['pos'] + data_row['length']),
+                str(data_row['score']) if data_row['score'] else str(5)
+            ])
+
+        self.progressed.emit(1, 1, "Готово")
+
+        return doc
+
+    def create_correspondence_only(self):
+        doc = docx.Document("templates/correspondence.docx")
+        self.progressed.emit(0, 1, "Заполняю таблицу соответствия")
+
+        table = doc.tables[0]
+        smoothnes = self.get_smooth_data()
+        smoothnes = {i['pos']: i for i in smoothnes}
+        defects = self.get_defects()
+
+        previous_smooth = None
+
+        for idx, data_row in enumerate(defects):
+            smooth = smoothnes.get(data_row['pos'])
+            if smooth:
+                previous_smooth = smooth
+            else:
+                smooth = previous_smooth
+
+            row = add_row(table, [
+                get_km(data_row['pos']),
+                get_km(data_row['pos'] + data_row['length']),
+                'не соответствует' if smooth and smooth['is_bad'] else '-',
+                '?',
+                'не соответствует' if data_row['defects'] else '-'
+            ])
+
+        elf.progressed.emit(1, 1, "Готово {}".format(self.road.Name))
+
+        return doc
+
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")
 
