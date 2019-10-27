@@ -1,4 +1,5 @@
 import re
+from collections import OrderedDict
 from datetime import datetime
 
 from PyQt5 import QtCore
@@ -12,6 +13,8 @@ from sqlalchemy import or_, and_, func, text, literal_column, case
 from db import session, Session
 from helpers import Range, check_in, set_vertical_cell_direction, RangeAvg, RangeCustom, add_row
 from models import Attribute, Params, ListAttrib, Road, High, Way
+from shapely.geometry import Polygon, LineString
+from docxtpl import DocxTemplate
 
 
 def get_km(value):
@@ -52,7 +55,7 @@ class SmoothMixin(object):
         if self.smoothnes:
            return self.smoothnes
         self.smoothnes = []
-        column = literal_column("L1 / 100 * 100")
+        column = literal_column("L1 / {delta} * {delta}".format(delta=self.delta)) # literal_column("L1 / 100 * 100")
 
         def get_query(direction):
             return self.session.query(Attribute).filter(
@@ -104,6 +107,7 @@ class SmoothMixin(object):
                     'forward': round(a.forward, 2),
                     'delta': self.end - a.pos if a.pos + self.delta > self.end else self.delta,
                     'pos': a.pos,
+                    'max_iri': max_iri,
                     'is_bad': max(a.backward, a.forward) > max_iri
                 })
 
@@ -316,6 +320,21 @@ class TrailReport(object):
 
 
 class DiagnosticsReport(SmoothMixin, QObject):
+    DEFECTS = {
+        "01020103": {
+            "title": "Выбоины",
+        },
+        "01020104": {
+            "title": "Сетка трещин",
+        },
+        "01020102": {
+            "title": "Карты(Заплаты)",
+        },
+        "01020101": {
+            "title": "Трещины",
+        }
+    }
+
     progressed = QtCore.pyqtSignal(int, int, str)
 
     def __init__(self, road_id, *args, **kwargs) -> None:
@@ -323,7 +342,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
         self.session = Session()
         self.defects = None
         self.barrier_data = None
-        self.delta = 100
+        self.delta = kwargs.get('delta', 100)
         self.road = self.session.query(Road).get(road_id)
         self.info = None
         self.start, self.end = self.road.get_length(self.session)
@@ -414,27 +433,14 @@ class DiagnosticsReport(SmoothMixin, QObject):
 
         out = []
         for row in qs:
-            rng.add_subrange(row.L1, row.L2 if row.L2 > row.L1 else row.L1 + 1, int(float(row.value) * 10))
-            out.append((row.L1, row.L2, int(float(row.value) * 10)))
+            rng.add_subrange(row.L1, row.L2 if row.L2 > row.L1 else row.L1 + 1, min(70, int(float(row.value) * 10)))
+            out.append((row.L1, row.L2, min(70, int(float(row.value) * 10))))
 
         out = self.join_ranges([r for r in rng.ranges if r[2] is not None], [10, 20, 30, 40, 50, 70])
         return out
 
     def get_defects_report(self):
-        DEFECTS = {
-            "01020103": {
-                "title": "Выбоины",
-            },
-            "01020104": {
-                "title": "Сетка трещин",
-            },
-            "01020102": {
-                "title": "Карты(Заплаты)",
-            },
-            "01020101": {
-                "title": "Трещины",
-            }
-        }
+
         attributes = self.session.query(
             Attribute.L1,
             Attribute.L2,
@@ -446,8 +452,8 @@ class DiagnosticsReport(SmoothMixin, QObject):
             .join(High)\
             .join(Way)\
             .filter(Way.road_id == self.road.id) \
-            .filter(Attribute.ID_Type_Attr.in_(DEFECTS.keys())) \
-            .join(ListAttrib, ListAttrib.id == Attribute.ID_Type_Attr) \
+            .filter(Attribute.ID_Type_Attr.in_(self.DEFECTS.keys())) \
+            .outerjoin(ListAttrib, ListAttrib.id == Attribute.ID_Type_Attr) \
             .order_by(Attribute.L1, Attribute.L2)
 
         defects = {}
@@ -455,6 +461,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
         attributes = list(attributes)
         for r in attributes:
             name = r.name_attribute
+            value = 0
             if r.ID_Type_Attr == '01020101':
                 points = Attribute.get_points(r.Image_Points, r.Image_Counts)
                 da = max([p.a for p in points]) - min([p.a for p in points])
@@ -463,9 +470,18 @@ class DiagnosticsReport(SmoothMixin, QObject):
                     name = "Поперечные трещины"
                 else:
                     name = "Продольные трещины"
+                value = LineString([(p.x, p.y) for p in points]).length
+            elif r.ID_Type_Attr in ('01020103', '01020104'):  # Выбоины, сетка трещин
+                points = Attribute.get_points(r.Image_Points, r.Image_Counts)
+                if len(points) > 2:
+                    polygon = Polygon([(p.x, p.y) for p in points])
+                    value = polygon.area
+                else:
+                    value = LineString([(p.x, p.y) for p in points]).length * 6
+                name = self.DEFECTS.get(r.ID_Type_Attr, {"title": name})['title']
 
             item = defects.setdefault(name, [])
-            item.append((r.L1, r.L2))
+            item.append((r.L1, r.L2, value))
 
             LMax = max(LMax, r.L1, r.L2)
 
@@ -498,7 +514,9 @@ class DiagnosticsReport(SmoothMixin, QObject):
         return {
             'Поперечные трещины': transverse_cracks_ranges,
             'Продольные трещины': longitudinal_cracks_ranges,
+            'Трещины': defects.get("Продольные трещины", []) + defects.get("Поперечные трещины", []),
             'Выбоины': potholes_ranges,
+            'Выбоины_raw': defects.get("Выбоины", []),
             'Колейность': koleynost,
             'Сетка трещин': defects.get("Сетка трещин"),
             'Карты(Заплаты)': defects.get("Карты(Заплаты)", []),
@@ -509,7 +527,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
         ranges = range(self.start, self.end + 1, delta)
         return ranges, delta
 
-    def get_defects(self):
+    def get_defects(self, round_score=True):
         if self.defects is not None:
             return self.defects
 
@@ -537,7 +555,8 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'alone': False,
                         'score': 3.5,
                         'length': item[0] - item[1],
-                        'description': "продольные боковые трещины"
+                        'description': "продольные боковые трещины",
+                        'defect_code': '11',
                     })
 
             defect_cell_offset = 4
@@ -548,6 +567,18 @@ class DiagnosticsReport(SmoothMixin, QObject):
                     else:
                         cell_offset = [40, 20, 10, 8, 6, 4, 3, 2].index(item[2]) + 1
 
+                    defect_item = {
+                        None: {"description": "более 40м", "code": '1', "score": 5.0},
+                        40: {"description": "20-40м", "code": '2', "score": 4.9},
+                        20: {"description": "10-20м", "code": '3', "score": 4.6},
+                        10: {"description": "8-10м", "code": '4', "score": 4.3},
+                        8: {"description": "6-8м", "code": '5', "score": 3.9},
+                        6: {"description": "4-6м", "code": '6', "score": 3.6},
+                        4: {"description": "3-4м", "code": '7', "score": 3.2},
+                        3: {"description": "2-3м", "code": '8', "score": 2.9},
+                        2: {"description": "1-2м", "code": '9', "score": 2.6},
+                    }.get(item[2])
+
                     row['defects'].append({
                         'type': 'Поперечные трещины',
                         'short': "+",
@@ -555,30 +586,11 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'alone': item[2] is None,
                         'address': (item[0] + item[1]) / 2,
                         'length': item[1] + item[0],
-                        'score': {
-                            None: 5.0,
-                            40: 4.8,
-                            20: 4.5,
-                            10: 4.0,
-                            8: 3.8,
-                            6: 3.5,
-                            4: 3.0,
-                            3: 2.8,
-                            2: 2.5,
-                        }.get(item[2]),
+                        'score': defect_item['score'],
                         'description': "поперечные трещины, на расстоянии {}".format(
-                            {
-                                None: "более 40м",
-                                40: "20-40м",
-                                20: "10-20м",
-                                10: "8-10м",
-                                8: "6-8м",
-                                6: "4-6м",
-                                4: "3-4м",
-                                3: "2-3м",
-                                2: "1-2м",
-                            }.get(item[2])
-                        )
+                            defect_item['description'],
+                        ),
+                        'defect_code': defect_item['code'],
                     })
 
             defect_cell_offset = 16
@@ -589,10 +601,11 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'short': "+",
                         "cell": defect_cell_offset + 1,
                         'alone': False,
-                        'score': 2.0,
+                        'score': 1.9,
                         'length': item[1] + item[0],
                         'description': "сетка трещин на площади более 10 кв. м. "
-                                       "при относительной площади занимаемой сеткой 60-30%"
+                                       "при относительной площади занимаемой сеткой 60-30%",
+                        'defect_code': '16',
                     })
 
             defect_cell_offset = 19
@@ -602,6 +615,16 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         cell_offset = 6
                     else:
                         cell_offset = [10, 20, 30, 40, 50, 70].index(item[2])
+
+                    defect_item = {
+                        10: {"description": "до 10мм", "code": '-', "score": 5.0},
+                        20: {"description": "10-20мм", "code": '-', "score": 4.0},
+                        30: {"description": "20-30мм", "code": '30', "score": 3.0},
+                        40: {"description": "30-40мм", "code": '31', "score": 2.5},
+                        50: {"description": "40-50мм", "code": '32', "score": 2.0},
+                        70: {"description": "50-70мм", "code": '33', "score": 1.8},
+                    }.get(item[2])
+
                     row['defects'].append({
                         'type': 'Колейность',
                         'short': "+",
@@ -609,24 +632,11 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'alone': item[2] is None,
                         'address': (item[0] + item[1]) / 2,
                         'length': item[1] + item[0],
-                        'score': {
-                            10: 5.0,
-                            20: 4.0,
-                            30: 3.0,
-                            40: 2.5,
-                            50: 2.0,
-                            70: 1.5,
-                        }.get(item[2]),
+                        'score': defect_item['score'],
                         'description': "колейность при средней глубине колеи {}".format(
-                            {
-                                10: "до 10мм",
-                                20: "10-20мм",
-                                30: "20-30мм",
-                                40: "30-40мм",
-                                50: "40-60мм",
-                                70: "60-70мм",
-                            }.get(item[2])
-                        )
+                            defect_item['description']
+                        ),
+                        'defect_code': defect_item['code']
                     })
 
             defect_cell_offset = 32
@@ -636,6 +646,22 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         cell_offset = 0
                     else:
                         cell_offset = [20, 10, 4].index(item[2]) + 1
+
+                    defect_item = {
+                        None: {
+                            "description": "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами более 20м)",
+                            "code": '24', "score": 4.5},
+                        20: {
+                            "description": "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 10-20м)",
+                            "code": '25', "score": 3.5},
+                        10: {
+                            "description": "редкие выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 4-10м)",
+                            "code": '26', "score": 2.7},
+                        4: {
+                            "description": "частые выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 1-4м)",
+                            "code": '27', "score": 2.2},
+                    }.get(item[2])
+
                     row['defects'].append({
                         'type': 'Выбоины',
                         'short': "+",
@@ -643,23 +669,15 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'alone': item[2] is None,
                         'address': (item[0] + item[1]) / 2,
                         'length': item[1] + item[0],
-                        'score': {
-                            None: 5.0,
-                            20: 4.0,
-                            10: 3.0,
-                            4: 2.5,
-                        }.get(item[2]),
-                        'description': {
-                            None: "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами более 20м)",
-                            20: "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 10-20м)",
-                            10: "редкие выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 4-10м)",
-                            4: "частые выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 1-4м)",
-                        }.get(item[2])
+                        'score': defect_item['score'],
+                        'description': defect_item['description'],
+                        'defect_code': defect_item['code']
                     })
 
-            length = sum([i['length'] for i in row['defects'] if i['length']])
-            score = sum([i['score'] * i['length'] for i in row['defects'] if i['length']])
-            row['score'] = round(score / length, 1) if length else 0
+            if round_score:
+                length = sum([i['length'] for i in row['defects'] if i['length']])
+                score = sum([i['score'] * i['length'] for i in row['defects'] if i['length']])
+                row['score'] = round(score / length, 1) if length else 0
 
             self.defects.append(row)
 
@@ -992,6 +1010,78 @@ ORDER BY 1
 
         return doc
 
+    def create_shelehov(self):
+        doc = docx.Document("templates/sheleov.docx")
+
+        table = doc.tables[0]
+
+        ranges = self.get_width_data()
+        min_width = min([i[2] for i in ranges])
+        max_width = max([i[2] for i in ranges])
+        start = min([i[0] for i in ranges])
+        end = max([i[1] for i in ranges])
+        add_row(table, [
+            "{} — {}".format(get_km(int(start)), get_km(int(end))),
+            "{} — {}".format(min_width, max_width),
+        ])
+
+        attributes = Attribute.query_by_road(self.session, self.road.id).filter(
+            Attribute.ID_Type_Attr == '23120202',
+        ).join(Params).with_entities(
+            Attribute.L1,
+            Attribute.L2,
+            Attribute.ID_Type_Attr,
+            Attribute.Image_Points,
+            Attribute.Image_Counts,
+            Params.value.label("value")
+        ).order_by(Attribute.L1, Attribute.L2, Attribute.id)
+
+        attributes = list(attributes)
+
+        defects = self.get_defects_report()
+
+        table = doc.tables[1]
+
+        for p in defects.get('Сетка трещин', []) or []:
+            add_row(table, [
+                str(get_km(p[0])),
+                str(get_km(p[1])),
+                'Сетка трещин',
+                str(round(p[2], 2)) + ' м2'
+            ])
+
+        delta = 50
+        potholes = OrderedDict()
+        for p in defects.get('Выбоины_raw', []) or []:
+            potholes.setdefault(int(p[0] / delta), 0)
+            potholes[int(p[0] / delta)] += p[2]
+
+        for address, area in potholes.items():
+            add_row(table, [
+                str(get_km(address * delta)),
+                str(get_km(address * delta + delta)),
+                'Выбоины',
+                str(round(area, 2)) + ' м2'
+            ])
+
+        cracks = OrderedDict()
+        for p in defects.get('Трещины', []) or []:
+            cracks.setdefault(int(p[0] / delta), 0)
+            cracks[int(p[0] / delta)] += p[2]
+
+        for address, area in cracks.items():
+            add_row(table, [
+                str(get_km(address * delta)),
+                str(get_km(address * delta + delta)),
+                'Трещины',
+                str(round(area, 2)) + ' м'
+            ])
+
+        report = BadWellsReport(self.session)
+        data = report(self.road.id)
+
+        return doc
+
     def create(self):
         doc = docx.Document("templates/diagnostics.docx")
 
@@ -1106,3 +1196,171 @@ ORDER BY 1
             })
 
         return out
+
+
+class DiagnosticsReportUlanUde2019(DiagnosticsReport):
+    def set_table_header(self, table):
+        table.rows[0].cells[0].paragraphs[0].text = self.road.Name
+        table.rows[1].cells[0].paragraphs[0].text = "Дата обследования: 14.10.2019"
+
+    def get_koleynost_data(self):
+        out = []
+        address_column = literal_column("L1 / {delta} * {delta}".format(delta=self.delta))
+
+        def get_query(direction):
+            return self.session.query(Attribute).filter(
+                Attribute.ID_Type_Attr == '01020106',
+                Attribute.id.in_(
+                    Attribute.query_by_road(self.session, self.road.id)
+                        .join(Params)
+                        .filter(Params.id == '245')
+                        .filter(Params.value == direction)
+                        .with_entities(Attribute.id)
+                )
+            ).join(Params).filter(Params.id == '212')
+
+        forward = get_query("Прямое").with_entities(
+            address_column.label('pos'),
+            literal_column("Avg(Cast(ValueParam as float))").label('forward'),
+            literal_column('0').label('backward'),
+        ).group_by(address_column)
+
+        backward = get_query("Обратное").with_entities(
+            address_column,
+            literal_column("0"),
+            literal_column("Avg(Cast(ValueParam as float))"),
+        ).group_by(address_column)
+
+        qs = forward.union(backward).subquery('t')
+
+        attributes = self.session.query(
+            qs.c.pos.label('pos'),
+            case([(func.max(qs.c.forward) > 0, func.max(qs.c.forward))], else_=func.max(qs.c.backward)).label('forward'),
+            case([(func.max(qs.c.backward) > 0, func.max(qs.c.backward)),], else_=func.max(qs.c.forward)).label('backward'),
+        ).group_by(qs.c.pos)
+
+        info = self.get_road_type_and_category()
+        max_koleynost = {
+            '1': 40,
+            '1В': 40,
+            '1B': 40,
+            '2': 40,
+            '3': 40,
+            '4': 40,
+            '5': 40,
+        }.get(info['category'], 5.5)
+
+        for a in attributes:
+            if self.start <= a.pos <= self.end:
+                out.append({
+                    'backward': round(a.backward, 2),
+                    'forward': round(a.forward, 2),
+                    'delta': self.end - a.pos if a.pos + self.delta > self.end else self.delta,
+                    'pos': a.pos,
+                    'max_koleynost': max_koleynost,
+                    'is_bad': max(a.backward, a.forward) > max_koleynost
+                })
+
+        return out
+
+    def fill_table_defects_by_odn_verbose(self, table):
+        self.set_table_header(table)
+
+        defects = self.get_defects(round_score=False)
+        self.road_length_defects_good = 0
+        for defect_info in defects:
+
+            cells = table.add_row().cells
+            cells[0].text = str(defect_info['pos'] // 1000)
+            cells[1].text = str(defect_info['pos'] % 1000)
+            cells[2].text = str((defect_info['pos'] + defect_info['length']) // 1000)
+            cells[3].text = str((defect_info['pos'] + defect_info['length']) % 1000)
+            cells[4].text = str(defect_info['length'])
+
+            min_defect_by_score = min(defect_info['defects'], key=lambda i: i['score'])
+            is_good = min_defect_by_score['score'] >= 2.5
+
+            cells[5].text = min_defect_by_score['defect_code']
+            cells[6].text = min_defect_by_score['defect_code']
+            cells[7].text = str(min_defect_by_score['score'])
+            cells[8].text = str(min_defect_by_score['score'])
+            cells[9].text = "Соответствует" if is_good else "Не соответствует"
+
+            key = (defect_info['pos'], defect_info['pos'] + defect_info['length'])
+            self.length_good.setdefault(key, True)
+            self.length_good[key] &= is_good
+
+            if is_good:
+                self.road_length_defects_good += defect_info['length']
+
+    def fill_smooth_data(self, table):
+        self.set_table_header(table)
+        smooth_items = self.get_smooth_data()
+
+        self.road_length_smooth_good = 0
+        for a in smooth_items:
+            cells = table.add_row().cells
+            cells[0].text = get_km(a['pos'])
+            cells[1].text = get_km(a['pos'] + a['delta'])
+            cells[2].text = str(a['backward'])
+            cells[3].text = str(a['forward'])
+            cells[10].text = str(max(a['backward'], a['forward']))
+            cells[11].text = "менее {}".format(a['max_iri'])
+            cells[12].text = str(a['delta'])
+            cells[13].text = "Не соответствует" if a['is_bad'] else "Соответствует"
+
+            key = (a['pos'], a['pos'] + a['delta'])
+            self.length_good.setdefault(key, True)
+            self.length_good[key] &= not a['is_bad']
+
+            if not a['is_bad']:
+                self.road_length_smooth_good += a['delta']
+
+    def fill_koleynost_data(self, table):
+        self.set_table_header(table)
+        koleynost_items = self.get_koleynost_data()
+
+        for a in koleynost_items:
+            cells = table.add_row().cells
+            cells[0].text = get_km(a['pos'])
+            cells[1].text = get_km(a['pos'] + a['delta'])
+            cells[2].text = str(a['backward'])
+            cells[3].text = str(a['forward'])
+            cells[10].text = str(max(a['backward'], a['forward']))
+            cells[11].text = "менее {}".format(a['max_koleynost'])
+            cells[12].text = str(a['delta'])
+            cells[13].text = "Не соответствует" if a['is_bad'] else "Соответствует"
+
+            key = (a['pos'], a['pos'] + a['delta'])
+            self.length_good.setdefault(key, True)
+            self.length_good[key] &= not a['is_bad']
+
+    def create(self):
+        doc_template = DocxTemplate("templates/ulan_ude_2019.docx")
+        doc = doc_template.docx
+
+        self.length_good = {}
+
+        table = doc.tables[2]
+        self.fill_smooth_data(table)
+
+        table = doc.tables[3]
+        self.fill_koleynost_data(table)
+
+        table = doc.tables[4]
+        self.fill_table_defects_by_odn_verbose(table)
+
+        road_length_good = 0
+        for key, value in self.length_good.items():
+            if value:
+                road_length_good += key[1] - key[0]
+
+        doc_template.render({
+            'road_name': self.road.Name,
+            'road_length_smooth_good':  "{} км".format(self.road_length_smooth_good / 1000),
+            'road_length_defects_good':  "{} км".format(self.road_length_defects_good / 1000),
+            'road_length_good':  "{} км".format(road_length_good / 1000),
+        })
+
+        return doc
+

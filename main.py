@@ -83,12 +83,14 @@ class ReportWorker(QRunnable):
                  quality_only=False,
                  smooth_only=False,
                  correspondence_only=False,
+                 shelehov=False,
                  default_category="4",
                  *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.road = road
         self.save_path = save_path
         self.as_json = as_json
+        self.shelehov = shelehov
         self.default_category = default_category
         self.smooth_only = smooth_only
         self.correspondence_only = correspondence_only
@@ -114,6 +116,9 @@ class ReportWorker(QRunnable):
                 doc.save(self.save_path)
             elif self.correspondence_only:
                 doc = report.create_correspondence_only()
+                doc.save(self.save_path)
+            elif self.shelehov:
+                doc = report.create_shelehov()
                 doc.save(self.save_path)
             else:
                 doc = report.create()
@@ -233,6 +238,13 @@ class MainWindow(Ui_MainWindow, QMainWindow):
 
         return self._generate(docx_road_processor)
 
+    def generate_docx_shelehov(self):
+        def docx_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), shelehov=True)
+
+        return self._generate(docx_road_processor)
+
     def generate_png(self):
         zoom, cancel = QInputDialog.getInt(self, "Введите желаемый зум для карты", "Зум карты", self.zoom)
         if not cancel:
@@ -281,6 +293,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.generate_docx_conformity()
         elif self.comboBox.currentText() == 'Сгенерировать карты (*.png)':
             self.generate_png()
+        elif self.comboBox.currentText() == 'Сгенерировать docx (шелехов)':
+            self.generate_docx_shelehov()
 
     @QtCore.pyqtSlot(str, int)
     def onLogged(self, message, level):

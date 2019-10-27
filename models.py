@@ -104,7 +104,7 @@ class Attribute(Base):
     id = Column("ID_Attribute", Integer, primary_key=True)
     high_id = Column("ID_High", sa.Integer, sa.ForeignKey("High.ID_High"))
     ID_Operator = Column(Integer)
-    ID_Type_Attr = Column(Integer, sa.ForeignKey("ListAttrib.ID_Type_Attr"))
+    ID_Type_Attr = Column(Integer, sa.ForeignKey("Types_Description.ID_Type_Attr"))
     L1 = Column(Integer)
     L2 = Column(Integer)
     Image_Points = Column(sa.BLOB)
@@ -143,6 +143,6 @@ class Attribute(Base):
 
 
 class ListAttrib(Base):
-    __tablename__ = "ListAttrib"
+    __tablename__ = "Types_Description"
     id = Column("ID_Type_Attr", Integer, primary_key=True)
-    name_attribute = Column("NameAttribute", sa.String)
+    name_attribute = Column("Param_Name", sa.String)

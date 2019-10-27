@@ -1,7 +1,8 @@
+from pprint import pprint
 from unittest import TestCase
 
 from helpers import Range
-from reports import DiagnosticsReport
+from reports import DiagnosticsReport, DiagnosticsReportUlanUde2019
 
 
 class RangeTestCase(TestCase):
@@ -188,3 +189,13 @@ class TestReport(TestCase):
     def test_width_report(self):
         report = DiagnosticsReport(1557)
         width = report.get_width_data()
+
+    def test_deffect(self):
+        report = DiagnosticsReport(368, default_category=4)
+        doc = report.create_shelehov()
+        doc.save("Боевая.docx")
+
+    def test_report_ulan_ude(self):
+        report = DiagnosticsReportUlanUde2019(4021, delta=50, default_category=4)
+        doc = report.create()
+        doc.save("Боевая.docx")
