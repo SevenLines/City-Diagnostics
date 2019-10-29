@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog
 from db import session, Session
 from helpers import add_row
 from models import Road
-from reports import DiagnosticsReport, get_km
+from reports import DiagnosticsReport, get_km, DiagnosticsReportUlanUde2019
 from ui.mainwindow import Ui_MainWindow
 
 
@@ -84,6 +84,7 @@ class ReportWorker(QRunnable):
                  smooth_only=False,
                  correspondence_only=False,
                  shelehov=False,
+                 ulanude2019=False,
                  default_category="4",
                  *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -91,6 +92,7 @@ class ReportWorker(QRunnable):
         self.save_path = save_path
         self.as_json = as_json
         self.shelehov = shelehov
+        self.ulanude2019 = ulanude2019
         self.default_category = default_category
         self.smooth_only = smooth_only
         self.correspondence_only = correspondence_only
@@ -100,8 +102,13 @@ class ReportWorker(QRunnable):
     def run(self):
         try:
             self.signals.logged.emit("Обработка {}".format(self.road.Name), LogModel.INFO)
-            report = DiagnosticsReport(self.road.id, default_category=self.default_category)
+            if self.ulanude2019:
+                report = DiagnosticsReportUlanUde2019(self.road.id, default_category=self.default_category)
+            else:
+                report = DiagnosticsReport(self.road.id, default_category=self.default_category)
+
             report.progressed.connect(self.signals.onProgress)
+
             if self.as_json:
                 data = report.create_json()
                 with open(self.save_path, 'w') as f:
@@ -231,6 +238,12 @@ class MainWindow(Ui_MainWindow, QMainWindow):
                     road.Name[:100].replace("\"", "").replace("/", "-"))), smooth_only=True)
         return self._generate(docx_smooth_road_processor)
 
+    def generate_ulanude2019(self):
+        def docx_smooth_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), ulanude2019=True)
+        return self._generate(docx_smooth_road_processor)
+
     def generate_docx(self):
         def docx_road_processor(road, path):
             return ReportWorker(road, os.path.join(path, "{}.docx".format(
@@ -295,6 +308,8 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.generate_png()
         elif self.comboBox.currentText() == 'Сгенерировать docx (шелехов)':
             self.generate_docx_shelehov()
+        elif self.comboBox.currentText() == 'Сгенерировать docx (улан-удэ 2019)':
+            self.generate_ulanude2019()
 
     @QtCore.pyqtSlot(str, int)
     def onLogged(self, message, level):

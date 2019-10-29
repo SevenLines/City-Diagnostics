@@ -21,6 +21,10 @@ def get_km(value):
     return "{}+{:03}".format(value // 1000, value % 1000)
 
 
+POSITION_LEFT = -1
+POSITION_RIGHT = 1
+POSITION_BOTH = 0
+
 class SmoothMixin(object):
     def __init__(self,  *args, **kwargs) -> None:
         super().__init__()
@@ -462,17 +466,41 @@ class DiagnosticsReport(SmoothMixin, QObject):
         for r in attributes:
             name = r.name_attribute
             value = 0
+            position = POSITION_BOTH
+
             if r.ID_Type_Attr == '01020101':
                 points = Attribute.get_points(r.Image_Points, r.Image_Counts)
-                da = max([p.a for p in points]) - min([p.a for p in points])
+
+                max_p = max([p.a for p in points])
+                min_p = min([p.a for p in points])
+                da = max_p - min_p
+
                 dy = r.L2 - r.L1
                 if da > dy:
                     name = "Поперечные трещины"
                 else:
                     name = "Продольные трещины"
                 value = LineString([(p.x, p.y) for p in points]).length
+                if max_p * min_p < 0:
+                    position = POSITION_BOTH
+                elif max_p > 0:
+                    position = POSITION_RIGHT
+                else:
+                    position = POSITION_LEFT
             elif r.ID_Type_Attr in ('01020103', '01020104'):  # Выбоины, сетка трещин
                 points = Attribute.get_points(r.Image_Points, r.Image_Counts)
+
+                max_p = max([p.a for p in points])
+                min_p = min([p.a for p in points])
+                da = max_p - min_p
+
+                if max_p * min_p < 0:
+                    position = POSITION_BOTH
+                elif max_p > 0:
+                    position = POSITION_RIGHT
+                else:
+                    position = POSITION_LEFT
+
                 if len(points) > 2:
                     polygon = Polygon([(p.x, p.y) for p in points])
                     value = polygon.area
@@ -481,7 +509,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
                 name = self.DEFECTS.get(r.ID_Type_Attr, {"title": name})['title']
 
             item = defects.setdefault(name, [])
-            item.append((r.L1, r.L2, value))
+            item.append((r.L1, r.L2, {"value": value, "position": position}))
 
             LMax = max(LMax, r.L1, r.L2)
 
@@ -490,7 +518,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
         if longitudinal_cracks:
             rng = Range(self.start, self.end)
             for r in longitudinal_cracks:
-                rng.add_subrange(r[0], r[1] if r[1] > r[0] else r[0] + 1, 1)
+                rng.add_subrange(r[0], r[1] if r[1] > r[0] else r[0] + 1, r[2])
             longitudinal_cracks_ranges = [i for i in rng.ranges if i[2]]
 
         transverse_cracks = defects.get("Поперечные трещины", [])
@@ -1344,10 +1372,10 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
         table = doc.tables[2]
         self.fill_smooth_data(table)
 
-        table = doc.tables[3]
-        self.fill_koleynost_data(table)
+        # table = doc.tables[3]
+        # self.fill_koleynost_data(table)
 
-        table = doc.tables[4]
+        table = doc.tables[3]
         self.fill_table_defects_by_odn_verbose(table)
 
         road_length_good = 0

@@ -71,6 +71,7 @@ class Ui_MainWindow(object):
         self.comboBox.setItemText(2, _translate("MainWindow", "Сгенерировать docx (ровность)"))
         self.comboBox.setItemText(3, _translate("MainWindow", "Сгенерировать docx (состояние участков в баллах)"))
         self.comboBox.setItemText(4, _translate("MainWindow", "Сгенерировать docx (соответствие состояния)"))
+        self.comboBox.setItemText(4, _translate("MainWindow", "Сгенерировать docx (улан-удэ 2019)"))
         self.comboBox.setItemText(5, _translate("MainWindow", "Сгенерировать карты (*.png)"))
         self.comboBox.setItemText(6, _translate("MainWindow", "Сгенерировать json"))
         self.btnGenerate.setText(_translate("MainWindow", "Запуск"))
