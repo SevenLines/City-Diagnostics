@@ -487,7 +487,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
                     position = POSITION_RIGHT
                 else:
                     position = POSITION_LEFT
-            elif r.ID_Type_Attr in ('01020103', '01020104'):  # Выбоины, сетка трещин
+            elif r.ID_Type_Attr in ('01020102', '01020103', '01020104'):  # Выбоины, сетка трещин
                 points = Attribute.get_points(r.Image_Points, r.Image_Counts)
 
                 max_p = max([p.a for p in points])
@@ -555,7 +555,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
         ranges = range(self.start, self.end + 1, delta)
         return ranges, delta
 
-    def get_defects(self, round_score=True):
+    def get_defects(self, round_score=True, skip_koleynost=False):
         if self.defects is not None:
             return self.defects
 
@@ -636,36 +636,37 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'defect_code': '16',
                     })
 
-            defect_cell_offset = 19
-            for item in defects['Колейность'] or []:
-                if check_in(item, (offset, offset + 100)):
-                    if item[2] == None:
-                        cell_offset = 6
-                    else:
-                        cell_offset = [10, 20, 30, 40, 50, 70].index(item[2])
+            if not skip_koleynost:
+                defect_cell_offset = 19
+                for item in defects['Колейность'] or []:
+                    if check_in(item, (offset, offset + 100)):
+                        if item[2] == None:
+                            cell_offset = 6
+                        else:
+                            cell_offset = [10, 20, 30, 40, 50, 70].index(item[2])
 
-                    defect_item = {
-                        10: {"description": "до 10мм", "code": '-', "score": 5.0},
-                        20: {"description": "10-20мм", "code": '-', "score": 4.0},
-                        30: {"description": "20-30мм", "code": '30', "score": 3.0},
-                        40: {"description": "30-40мм", "code": '31', "score": 2.5},
-                        50: {"description": "40-50мм", "code": '32', "score": 2.0},
-                        70: {"description": "50-70мм", "code": '33', "score": 1.8},
-                    }.get(item[2])
+                        defect_item = {
+                            10: {"description": "до 10мм", "code": '-', "score": 5.0},
+                            20: {"description": "10-20мм", "code": '-', "score": 4.0},
+                            30: {"description": "20-30мм", "code": '30', "score": 3.0},
+                            40: {"description": "30-40мм", "code": '31', "score": 2.5},
+                            50: {"description": "40-50мм", "code": '32', "score": 2.0},
+                            70: {"description": "50-70мм", "code": '33', "score": 1.8},
+                        }.get(item[2])
 
-                    row['defects'].append({
-                        'type': 'Колейность',
-                        'short': "+",
-                        'cell': defect_cell_offset + cell_offset,
-                        'alone': item[2] is None,
-                        'address': (item[0] + item[1]) / 2,
-                        'length': item[1] + item[0],
-                        'score': defect_item['score'],
-                        'description': "колейность при средней глубине колеи {}".format(
-                            defect_item['description']
-                        ),
-                        'defect_code': defect_item['code']
-                    })
+                        row['defects'].append({
+                            'type': 'Колейность',
+                            'short': "+",
+                            'cell': defect_cell_offset + cell_offset,
+                            'alone': item[2] is None,
+                            'address': (item[0] + item[1]) / 2,
+                            'length': item[1] + item[0],
+                            'score': defect_item['score'],
+                            'description': "колейность при средней глубине колеи {}".format(
+                                defect_item['description']
+                            ),
+                            'defect_code': defect_item['code']
+                        })
 
             defect_cell_offset = 32
             for item in defects['Выбоины'] or []:
@@ -678,16 +679,24 @@ class DiagnosticsReport(SmoothMixin, QObject):
                     defect_item = {
                         None: {
                             "description": "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами более 20м)",
-                            "code": '24', "score": 4.5},
+                            "code": '24',
+                            "score": 4.5
+                        },
                         20: {
                             "description": "одиночные выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 10-20м)",
-                            "code": '25', "score": 3.5},
+                            "code": '25',
+                            "score": 3.5
+                        },
                         10: {
                             "description": "редкие выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 4-10м)",
-                            "code": '26', "score": 2.7},
+                            "code": '26',
+                            "score": 2.7
+                        },
                         4: {
                             "description": "частые выбоины на покрытиях, содержащих органическое вяжущее (расстояние между выбоинами 1-4м)",
-                            "code": '27', "score": 2.2},
+                            "code": '27',
+                            "score": 2.2
+                        },
                     }.get(item[2])
 
                     row['defects'].append({
@@ -700,6 +709,20 @@ class DiagnosticsReport(SmoothMixin, QObject):
                         'score': defect_item['score'],
                         'description': defect_item['description'],
                         'defect_code': defect_item['code']
+                    })
+
+            defect_cell_offset = 33
+            for item in defects['Карты(Заплаты)'] or []:
+                if check_in(item, (offset, offset + 100)):
+                    row['defects'].append({
+                        'type': 'Карты(Заплаты)',
+                        'short': "+",
+                        "cell": defect_cell_offset,
+                        'alone': False,
+                        'score': 3.0,
+                        'length': item[0] - item[1],
+                        'description': "Карты заделанных выбоин, залитые трещины",
+                        'defect_code': '28',
                     })
 
             if round_score:
@@ -1294,7 +1317,7 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
     def fill_table_defects_by_odn_verbose(self, table):
         self.set_table_header(table)
 
-        defects = self.get_defects(round_score=False)
+        defects = self.get_defects(round_score=False, skip_koleynost=True)
         self.road_length_defects_good = 0
         for defect_info in defects:
 
@@ -1305,13 +1328,21 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
             cells[3].text = str((defect_info['pos'] + defect_info['length']) % 1000)
             cells[4].text = str(defect_info['length'])
 
-            min_defect_by_score = min(defect_info['defects'], key=lambda i: i['score'])
-            is_good = min_defect_by_score['score'] >= 2.5
+            if defect_info['defects']:
+                min_defect_by_score = min(defect_info['defects'], key=lambda i: i['score'])
+                is_good = min_defect_by_score['score'] >= 2.5
 
-            cells[5].text = min_defect_by_score['defect_code']
-            cells[6].text = min_defect_by_score['defect_code']
-            cells[7].text = str(min_defect_by_score['score'])
-            cells[8].text = str(min_defect_by_score['score'])
+                cells[5].text = min_defect_by_score['defect_code']
+                cells[6].text = min_defect_by_score['defect_code']
+                cells[7].text = str(min_defect_by_score['score'])
+                cells[8].text = str(min_defect_by_score['score'])
+            else:
+                is_good = True
+                cells[5].text = '-'
+                cells[6].text = '-'
+                cells[7].text = '-'
+                cells[8].text = '-'
+
             cells[9].text = "Соответствует" if is_good else "Не соответствует"
 
             key = (defect_info['pos'], defect_info['pos'] + defect_info['length'])
@@ -1343,25 +1374,6 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
 
             if not a['is_bad']:
                 self.road_length_smooth_good += a['delta']
-
-    def fill_koleynost_data(self, table):
-        self.set_table_header(table)
-        koleynost_items = self.get_koleynost_data()
-
-        for a in koleynost_items:
-            cells = table.add_row().cells
-            cells[0].text = get_km(a['pos'])
-            cells[1].text = get_km(a['pos'] + a['delta'])
-            cells[2].text = str(a['backward'])
-            cells[3].text = str(a['forward'])
-            cells[10].text = str(max(a['backward'], a['forward']))
-            cells[11].text = "менее {}".format(a['max_koleynost'])
-            cells[12].text = str(a['delta'])
-            cells[13].text = "Не соответствует" if a['is_bad'] else "Соответствует"
-
-            key = (a['pos'], a['pos'] + a['delta'])
-            self.length_good.setdefault(key, True)
-            self.length_good[key] &= not a['is_bad']
 
     def create(self):
         doc_template = DocxTemplate("templates/ulan_ude_2019.docx")

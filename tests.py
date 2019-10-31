@@ -196,6 +196,7 @@ class TestReport(TestCase):
         doc.save("Боевая.docx")
 
     def test_report_ulan_ude(self):
-        report = DiagnosticsReportUlanUde2019(4021, delta=50, default_category=4)
+        # 8007 424
+        report = DiagnosticsReportUlanUde2019(424, delta=50, default_category=4)
         doc = report.create()
-        doc.save("Боевая.docx")
+        doc.save("Улица.docx")
