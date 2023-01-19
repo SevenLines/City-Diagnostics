@@ -200,3 +200,6 @@ class TestReport(TestCase):
         report = DiagnosticsReportUlanUde2019(424, delta=50, default_category=4)
         doc = report.create()
         doc.save("Улица.docx")
+
+
+    def test_list_roads(self):

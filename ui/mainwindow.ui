@@ -92,6 +92,11 @@
         </item>
         <item>
          <property name="text">
+          <string>Сгенерировать docx (чита 2023)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
           <string>Сгенерировать карты (*.png)</string>
          </property>
         </item>

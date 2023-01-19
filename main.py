@@ -10,14 +10,14 @@ import geo2image
 import math
 import mercantile
 
-from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QAbstractListModel, QModelIndex, Qt, QRunnable, QObject
-from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog
+from PySide6 import QtCore, QtGui
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QRunnable, QObject
+from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QInputDialog
 
 from db import session, Session
 from helpers import add_row
 from models import Road
-from reports import DiagnosticsReport, get_km, DiagnosticsReportUlanUde2019
+from reports import DiagnosticsReport, get_km, DiagnosticsReportUlanUde2019, DiagnosticsReportChita2023
 from ui.mainwindow import Ui_MainWindow
 
 
@@ -64,15 +64,15 @@ class LogModel(QAbstractListModel):
 
 
 class ReportWorkerSignals(QObject):
-    finished = QtCore.pyqtSignal(object)
-    logged = QtCore.pyqtSignal(str, int)
-    progressed = QtCore.pyqtSignal(int, int, str)
+    finished = QtCore.Signal(object)
+    logged = QtCore.Signal(str, int)
+    progressed = QtCore.Signal(int, int, str)
 
     def __init__(self, road=None, *args, **kwargs) -> None:
         super(ReportWorkerSignals, self).__init__(*args, **kwargs)
         self.road = road
 
-    @QtCore.pyqtSlot(int, int, str)
+    @QtCore.Slot(int, int, str)
     def onProgress(self, value, max, message):
         self.progressed.emit(value, max, "{}: {}".format(self.road.Name if self.road else '', message))
 
@@ -85,6 +85,7 @@ class ReportWorker(QRunnable):
                  correspondence_only=False,
                  shelehov=False,
                  ulanude2019=False,
+                 chita2023=False,
                  default_category="4",
                  *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -93,6 +94,7 @@ class ReportWorker(QRunnable):
         self.as_json = as_json
         self.shelehov = shelehov
         self.ulanude2019 = ulanude2019
+        self.chita2023 = chita2023
         self.default_category = default_category
         self.smooth_only = smooth_only
         self.correspondence_only = correspondence_only
@@ -104,6 +106,8 @@ class ReportWorker(QRunnable):
             self.signals.logged.emit("Обработка {}".format(self.road.Name), LogModel.INFO)
             if self.ulanude2019:
                 report = DiagnosticsReportUlanUde2019(self.road.id, default_category=self.default_category)
+            elif self.chita2023:
+                report = DiagnosticsReportChita2023(self.road.id, default_category=self.default_category)
             else:
                 report = DiagnosticsReport(self.road.id, default_category=self.default_category)
 
@@ -210,7 +214,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
     def _generate(self, road_processor):
         roads = self.lstRoads.selectedIndexes()
         self.txtLog.clear()
-        path = QFileDialog.getExistingDirectory(directory="{}/".format(self.path))
+        path = QFileDialog.getExistingDirectory(dir="{}/".format(self.path))
         if path:
             self.path = path
             self.progressMain.setMaximum(len(roads))
@@ -242,6 +246,12 @@ class MainWindow(Ui_MainWindow, QMainWindow):
         def docx_smooth_road_processor(road, path):
             return ReportWorker(road, os.path.join(path, "{}.docx".format(
                     road.Name[:100].replace("\"", "").replace("/", "-"))), ulanude2019=True)
+        return self._generate(docx_smooth_road_processor)
+
+    def generate_chita2023(self):
+        def docx_smooth_road_processor(road, path):
+            return ReportWorker(road, os.path.join(path, "{}.docx".format(
+                    road.Name[:100].replace("\"", "").replace("/", "-"))), chita2023=True)
         return self._generate(docx_smooth_road_processor)
 
     def generate_docx(self):
@@ -310,8 +320,10 @@ class MainWindow(Ui_MainWindow, QMainWindow):
             self.generate_docx_shelehov()
         elif self.comboBox.currentText() == 'Сгенерировать docx (улан-удэ 2019)':
             self.generate_ulanude2019()
+        elif self.comboBox.currentText() == 'Сгенерировать docx (чита 2023)':
+            self.generate_chita2023()
 
-    @QtCore.pyqtSlot(str, int)
+    @QtCore.Slot(str, int)
     def onLogged(self, message, level):
         if level == LogModel.ERROR:
             self.progressMain.setValue(self.progressMain.value() + 1)
@@ -321,7 +333,7 @@ class MainWindow(Ui_MainWindow, QMainWindow):
 
         self.txtLog.append(message)
 
-    @QtCore.pyqtSlot(object)
+    @QtCore.Slot(object)
     def onReportFinished(self, report):
         self.progressMain.setValue(self.progressMain.value() + 1)
         if self.progressMain.value() == self.progressMain.maximum():

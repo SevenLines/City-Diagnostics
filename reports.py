@@ -1,13 +1,14 @@
+import os
 import re
 from collections import OrderedDict
 from datetime import datetime
 
-from PyQt5 import QtCore
+from PySide6 import QtGui, QtCore
+from PySide6.QtCore import QObject
 
 from itertools import groupby
 
 import docx
-from PyQt5.QtCore import QObject
 from sqlalchemy import or_, and_, func, text, literal_column, case
 
 from db import session, Session
@@ -339,7 +340,7 @@ class DiagnosticsReport(SmoothMixin, QObject):
         }
     }
 
-    progressed = QtCore.pyqtSignal(int, int, str)
+    progressed = QtCore.Signal(int, int, str)
 
     def __init__(self, road_id, *args, **kwargs) -> None:
         super(DiagnosticsReport, self).__init__(*args, **kwargs)
@@ -1314,11 +1315,33 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
 
         return out
 
+    def fill_koleynost_data(self, table):
+        koleynost = self.get_koleynost_data()
+        self.length_good_koleynost = {}
+        for koleynost_info in koleynost:
+            cells = table.add_row().cells
+
+            max_value = max(koleynost_info['forward'], koleynost_info['backward'])
+
+            cells[0].text = get_km(koleynost_info['pos'])
+            cells[1].text = get_km(koleynost_info['pos'])
+            cells[2].text = str(koleynost_info['forward'])
+            cells[3].text = str(koleynost_info['backward'])
+            cells[10].text = str(max_value)
+            cells[11].text = "не более 25"
+            cells[12].text = str(koleynost_info['delta'])
+            cells[13].text = "Соответствует" if max_value < 25 else "Не соответствует"
+
+            key = (koleynost_info['pos'], koleynost_info['pos'] + koleynost_info['delta'])
+            self.length_good_koleynost.setdefault(key, True)
+            self.length_good_koleynost[key] = max_value < 25
+
     def fill_table_defects_by_odn_verbose(self, table):
         self.set_table_header(table)
 
         defects = self.get_defects(round_score=False, skip_koleynost=True)
         self.road_length_defects_good = 0
+        self.length_good_defects = {}
         for defect_info in defects:
 
             cells = table.add_row().cells
@@ -1348,6 +1371,7 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
             key = (defect_info['pos'], defect_info['pos'] + defect_info['length'])
             self.length_good.setdefault(key, True)
             self.length_good[key] &= is_good
+            self.length_good_defects[key] = is_good
 
             if is_good:
                 self.road_length_defects_good += defect_info['length']
@@ -1357,6 +1381,7 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
         smooth_items = self.get_smooth_data()
 
         self.road_length_smooth_good = 0
+        self.length_good_smooth = {}
         for a in smooth_items:
             cells = table.add_row().cells
             cells[0].text = get_km(a['pos'])
@@ -1371,12 +1396,14 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
             key = (a['pos'], a['pos'] + a['delta'])
             self.length_good.setdefault(key, True)
             self.length_good[key] &= not a['is_bad']
+            self.length_good_smooth[key] = not a['is_bad']
 
             if not a['is_bad']:
                 self.road_length_smooth_good += a['delta']
 
     def create(self):
-        doc_template = DocxTemplate("templates/ulan_ude_2019.docx")
+        doc_template = DocxTemplate("./templates/ulan_ude_2019.docx")
+        doc_template.init_docx()
         doc = doc_template.docx
 
         self.length_good = {}
@@ -1404,3 +1431,52 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
 
         return doc
 
+
+
+class DiagnosticsReportChita2023(DiagnosticsReportUlanUde2019):
+    def fill_totals_by_defects_koleynosy_smooth(self, table):
+        for index in self.length_good_smooth:
+            smooth_is_good = self.length_good_smooth[index]
+            defect_is_good = self.length_good_defects[index]
+            koleynost_is_good = self.length_good_koleynost.get(index)
+
+            cells = table.add_row().cells
+            cells[0].text = get_km(index[0])
+            cells[1].text = get_km(index[1])
+            cells[2].text = "Соответствует" if smooth_is_good else "Не соответствует"
+            cells[3].text = "-" if koleynost_is_good is None else "Соответствует" if koleynost_is_good else "Не соответствует"
+            cells[4].text = "Соответствует" if defect_is_good else "Не соответствует"
+            cells[5].text = "Соответствует" if smooth_is_good and defect_is_good else "Не соответствует"
+
+    def create(self):
+        doc_template = DocxTemplate("./templates/chita2023.docx")
+        doc_template.init_docx()
+        doc = doc_template.docx
+
+        self.length_good = {}
+
+        table = doc.tables[4]
+        self.fill_smooth_data(table)
+
+        table = doc.tables[5]
+        self.fill_koleynost_data(table)
+
+        table = doc.tables[6]
+        self.fill_table_defects_by_odn_verbose(table)
+
+        road_length_good = 0
+        for key, value in self.length_good.items():
+            if value:
+                road_length_good += key[1] - key[0]
+
+        table = doc.tables[7]
+        self.fill_totals_by_defects_koleynosy_smooth(table)
+
+        doc_template.render({
+            'road_name': self.road.Name,
+            'road_length_smooth_good':  "{} км".format(self.road_length_smooth_good / 1000),
+            'road_length_defects_good':  "{} км".format(self.road_length_defects_good / 1000),
+            'road_length_good':  "{} км".format(road_length_good / 1000),
+        })
+
+        return doc
