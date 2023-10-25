@@ -1328,13 +1328,13 @@ class DiagnosticsReportUlanUde2019(DiagnosticsReport):
             cells[2].text = str(koleynost_info['forward'])
             cells[3].text = str(koleynost_info['backward'])
             cells[10].text = str(max_value)
-            cells[11].text = "не более 25"
+            cells[11].text = "не более 30"
             cells[12].text = str(koleynost_info['delta'])
-            cells[13].text = "Соответствует" if max_value < 25 else "Не соответствует"
+            cells[13].text = "Соответствует" if max_value <= 30 else "Не соответствует"
 
             key = (koleynost_info['pos'], koleynost_info['pos'] + koleynost_info['delta'])
             self.length_good_koleynost.setdefault(key, True)
-            self.length_good_koleynost[key] = max_value < 25
+            self.length_good_koleynost[key] = max_value <= 30
 
     def fill_table_defects_by_odn_verbose(self, table):
         self.set_table_header(table)
@@ -1449,7 +1449,7 @@ class DiagnosticsReportChita2023(DiagnosticsReportUlanUde2019):
             cells[5].text = "Соответствует" if smooth_is_good and defect_is_good else "Не соответствует"
 
     def create(self):
-        doc_template = DocxTemplate("./templates/chita2023.docx")
+        doc_template = DocxTemplate("./templates/gus2023.docx")
         doc_template.init_docx()
         doc = doc_template.docx
 
