@@ -506,7 +506,10 @@ class DiagnosticsReport(SmoothMixin, QObject):
                     polygon = Polygon([(p.x, p.y) for p in points])
                     value = polygon.area
                 else:
-                    value = LineString([(p.x, p.y) for p in points]).length * 6
+                    try:
+                        value = LineString([(p.x, p.y) for p in points]).length * 6
+                    except Exception as ex:
+                        print(ex)
                 name = self.DEFECTS.get(r.ID_Type_Attr, {"title": name})['title']
 
             item = defects.setdefault(name, [])
@@ -1449,7 +1452,7 @@ class DiagnosticsReportChita2023(DiagnosticsReportUlanUde2019):
             cells[5].text = "Соответствует" if smooth_is_good and defect_is_good else "Не соответствует"
 
     def create(self):
-        doc_template = DocxTemplate("./templates/gus2023.docx")
+        doc_template = DocxTemplate("./templates/kyhta2023.docx")
         doc_template.init_docx()
         doc = doc_template.docx
 
